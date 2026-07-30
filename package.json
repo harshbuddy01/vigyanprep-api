@@ -25,7 +25,8 @@
     "nodemailer": "^6.9.9",
     "pdf-parse": "^2.4.5",
     "razorpay": "^2.9.2",
-    "validator": "^13.11.0"
+    "validator": "^13.11.0",
+    "ws": "^8.21.1"
   },
   "devDependencies": {
     "nodemon": "^3.0.3"
