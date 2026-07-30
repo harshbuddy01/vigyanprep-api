@@ -1,4 +1,5 @@
-import pdfParse from 'pdf-parse';
+import pdf from 'pdf-parse';
+const pdfParse = typeof pdf === 'function' ? pdf : pdf.default || pdf;
 import { supabase } from '../db/supabase.js';
 
 /**

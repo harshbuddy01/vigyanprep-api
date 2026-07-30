@@ -1,6 +1,7 @@
 {
   "name": "vigyanprep-api",
   "version": "1.0.0",
+  "type": "module",
   "description": "Vigyanprep API Backend",
   "main": "src/index.js",
   "scripts": {
