@@ -1,6 +1,8 @@
-import pdf from 'pdf-parse';
-const pdfParse = typeof pdf === 'function' ? pdf : pdf.default || pdf;
+import { createRequire } from 'module';
 import { supabase } from '../db/supabase.js';
+
+const require = createRequire(import.meta.url);
+const pdfParse = require('pdf-parse');
 
 /**
  * Helper to parse text into structured questions and sections
@@ -23,7 +25,6 @@ function parsePdfTextToQuestions(rawText) {
     const line = lines[i].trim();
     if (!line) continue;
 
-    // Detect Section Header
     const lowerLine = line.toLowerCase();
     for (const [key, sectionName] of Object.entries(sectionKeywords)) {
       if (lowerLine.includes(`section`) && lowerLine.includes(key)) {
@@ -32,7 +33,6 @@ function parsePdfTextToQuestions(rawText) {
       }
     }
 
-    // Detect Question start (e.g., "Q1.", "1.", "Question 1:")
     const qMatch = line.match(/^(?:Q(?:uestion)?\s*(\d+)[\.:\)]|(\d+)[\.:\)])\s*(.*)/i);
     if (qMatch) {
       if (currentQ && currentQ.text) {
@@ -53,18 +53,16 @@ function parsePdfTextToQuestions(rawText) {
       continue;
     }
 
-    // Detect Options (A), (B), (C), (D) or A., B., C., D.
     if (currentQ) {
       const optMatch = line.match(/^[\(\[\{]?([A-D])[\)\]\.\:]\s*(.*)/i);
       if (optMatch) {
         const optLetter = optMatch[1].toUpperCase();
         const optVal = optMatch[2] || '';
-        const idx = optLetter.charCodeAt(0) - 65; // A=0, B=1, C=2, D=3
+        const idx = optLetter.charCodeAt(0) - 65;
         if (idx >= 0 && idx < 4) {
           currentQ.options[idx] = optVal;
         }
       } else {
-        // Append to question text if no options matched yet
         if (!currentQ.options.some(o => o.length > 0)) {
           currentQ.text += ' ' + line;
         }
@@ -76,7 +74,6 @@ function parsePdfTextToQuestions(rawText) {
     questions.push(currentQ);
   }
 
-  // If regex parsing yielded no questions, create default fallback items from text chunks
   if (questions.length === 0 && rawText.length > 0) {
     const paragraphs = rawText.split('\n\n').filter(p => p.trim().length > 20);
     paragraphs.forEach((p, idx) => {
@@ -127,7 +124,6 @@ export const approveAndPublishPyq = async (req, res) => {
       return res.status(400).json({ error: 'Invalid payload: title and questions array required' });
     }
 
-    // 1. Create Test Series Entry
     const { data: testSeries, error: testErr } = await supabase
       .from('test_series')
       .insert({
@@ -142,11 +138,8 @@ export const approveAndPublishPyq = async (req, res) => {
       .select()
       .single();
 
-    if (testErr) {
-      throw testErr;
-    }
+    if (testErr) throw testErr;
 
-    // 2. Insert Approved Questions
     const questionRows = questions.map((q) => ({
       test_series_id: testSeries.id,
       section: q.section || 'Physics',
@@ -162,9 +155,7 @@ export const approveAndPublishPyq = async (req, res) => {
       .insert(questionRows)
       .select();
 
-    if (qErr) {
-      throw qErr;
-    }
+    if (qErr) throw qErr;
 
     return res.status(200).json({
       success: true,
