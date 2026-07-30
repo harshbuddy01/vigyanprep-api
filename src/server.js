@@ -54,32 +54,13 @@ app.use(helmet({
   contentSecurityPolicy: false,
 }));
 
-// CORS Configuration
-const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:3000',
-  'https://vigyanprep.com',
-  'https://admin.vigyanprep.com',
-  'https://test.vigyanprep.com',
-  'https://auth.vigyanprep.com',
-  process.env.FRONTEND_URL
-].filter(Boolean);
-
-const corsOptions = {
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-    return callback(null, true); // Permissive in production to prevent user lockouts
-  },
+app.use(cors({
+  origin: true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-  maxAge: 600
-};
-
-app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
+}));
+app.options('*', cors());
 
 // Body Parser & Cookies
 app.use(express.json({ limit: '10mb' }));
