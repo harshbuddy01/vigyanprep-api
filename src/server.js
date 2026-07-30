@@ -236,6 +236,8 @@ import adminTestRoutes from './routes/adminTestRoutes.js';
 // IMPORTANT: Specific routes MUST come before the generic /api/admin route
 app.use('/api/admin/live-preview', adminTestRoutes);
 app.use('/api/admin/tests', adminTestPricingRoutes);
+import adminPyqRoutes from './routes/adminPyqRoutes.js';
+app.use('/api/admin/pyq', adminPyqRoutes);
 app.use('/api/admin/dashboard', adminDashboardRoutes);
 app.use('/api/admin/students', studentRoutes);
 app.use('/api/admin/transactions', transactionRoutes);
