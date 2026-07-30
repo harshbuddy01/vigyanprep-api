@@ -211,6 +211,7 @@ import resultRoutes from './routes/resultRoutes.js';
 import adminTestPricingRoutes from './routes/adminTestPricingRoutes.js';
 import doubtRoutes from './routes/doubtRoutes.js';
 import livePreviewRoutes from './routes/livePreviewRoutes.js';
+import adminPyqRoutes from './routes/adminPyqRoutes.js';
 
 // 🔧 CONFIG ENDPOINT - CRITICAL FOR PAYMENT GATEWAY
 app.get('/api/config', (req, res) => {
