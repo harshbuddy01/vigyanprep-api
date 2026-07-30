@@ -1,0 +1,2 @@
+# Python dependencies for PDF processing with AI extraction
+PyPDF2==3.0.1
