@@ -1,16 +1,7 @@
-const { createClient } = require('@supabase/supabase-js');
-const config = require('../config');
+import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = config.db.supabaseUrl;
-const supabaseKey = config.db.supabaseKey;
+const supabaseUrl = process.env.SUPABASE_URL || 'https://nmtixpogvdfyqvgkzzfs.supabase.co';
+const supabaseKey = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5tdGl4cG9ndmRmeXF2Z2t6emZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDEzNzMzOTQsImV4cCI6MjA1Njk0OTM5NH0.F9G4pL0m0MvY71d';
 
-let supabase = null;
-
-if (config.db.provider === 'supabase') {
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error('Supabase URL and Key must be provided when DB_PROVIDER is supabase');
-  }
-  supabase = createClient(supabaseUrl, supabaseKey);
-}
-
-module.exports = { supabase };
+export const supabase = createClient(supabaseUrl, supabaseKey);
+export default supabase;
