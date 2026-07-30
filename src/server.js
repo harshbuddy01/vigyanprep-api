@@ -337,15 +337,9 @@ import { connectDB, isMongoDBConnected } from './config/mongodb.js';
         console.log('🔗 Connecting to MongoDB...');
         const dbConnected = await connectDB();
         if (!dbConnected) {
-            console.error('❌ CRITICAL: MongoDB not connected!');
-            if (process.env.NODE_ENV === 'production') {
-                console.error('💀 Exiting due to database connection failure in production.');
-                process.exit(1);
-            }
-            console.warn('⚠️  MongoDB not connected - running in limited mode');
-            console.warn('🔗 Some features will not work without MongoDB');
+            console.warn('⚠️ MongoDB not connected - using Supabase database engine for all models');
         } else {
-            console.log('✅ MongoDB ready - No migrations needed!');
+            console.log('✅ Database connected');
         }
 
         // 🔴 FIX #7: VALIDATE ROUTES ARE LOADED
