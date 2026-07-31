@@ -147,7 +147,7 @@ export const approveAndPublishPyq = async (req, res) => {
       image_url: q.image_url || null,
       marks_positive: 4,
       marks_negative: 1,
-      status: 'published'
+      status: 'draft'
     }));
 
     const { data: insertedQs, error: qErr } = await supabase
