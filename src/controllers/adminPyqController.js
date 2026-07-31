@@ -277,3 +277,64 @@ export const getPyqList = async (req, res) => {
     return res.status(500).json({ error: 'Failed to fetch PYQs', details: error.message });
   }
 };
+
+export const getTestQuestions = async (req, res) => {
+  try {
+    const { testId } = req.params;
+    const { data, error } = await supabase
+      .from('questions')
+      .select('*')
+      .or(`test_id.eq.${testId},test_series_id.eq.${testId}`)
+      .order('question_number', { ascending: true });
+
+    if (error) {
+      const fallback = await supabase.from('questions').select('*').eq('test_id', testId).order('question_number', { ascending: true });
+      if (fallback.error) throw error;
+      return res.status(200).json({ success: true, questions: fallback.data || [] });
+    }
+    return res.status(200).json({ success: true, questions: data || [] });
+  } catch (error) {
+    return res.status(500).json({ error: 'Failed to fetch questions', details: error.message });
+  }
+};
+
+export const updateQuestion = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { question_text, section, options, correct_answer, image_url, question_type, type } = req.body;
+
+    const updatePayload = {};
+    if (question_text !== undefined) updatePayload.question_text = sanitizeText(question_text);
+    if (section !== undefined) updatePayload.section = section;
+    if (options !== undefined && Array.isArray(options)) updatePayload.options = options.map(opt => sanitizeText(opt || ''));
+    if (correct_answer !== undefined) updatePayload.correct_answer = correct_answer;
+    if (image_url !== undefined) updatePayload.image_url = image_url ? sanitizeText(image_url) : null;
+    if (question_type !== undefined || type !== undefined) {
+      updatePayload.question_type = question_type || type;
+      updatePayload.type = question_type || type;
+    }
+
+    const { data, error } = await supabase
+      .from('questions')
+      .update(updatePayload)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return res.status(200).json({ success: true, question: data });
+  } catch (error) {
+    return res.status(500).json({ error: 'Failed to update question', details: error.message });
+  }
+};
+
+export const deleteQuestion = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { error } = await supabase.from('questions').delete().eq('id', id);
+    if (error) throw error;
+    return res.status(200).json({ success: true, message: 'Question deleted successfully' });
+  } catch (error) {
+    return res.status(500).json({ error: 'Failed to delete question', details: error.message });
+  }
+};
