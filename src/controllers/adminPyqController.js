@@ -193,6 +193,7 @@ export const approveAndPublishPyq = async (req, res) => {
       section: q.section || 'Physics',
       type: q.type || 'MCQ',
       question_text: q.text,
+      image_url: q.imageUrl || q.image_url || null,
       options: Array.isArray(q.options) ? q.options : ['Option A', 'Option B', 'Option C', 'Option D'],
       correct_answer: q.correctAnswer || 'A',
       explanation: q.explanation || ''
