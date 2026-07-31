@@ -7,15 +7,15 @@ console.log('  RAZORPAY_API_SECRET:', process.env.RAZORPAY_API_SECRET ? '✅ SET
 let instance = null;
 
 try {
-  if (process.env.RAZORPAY_API_KEY && process.env.RAZORPAY_API_SECRET) {
+  if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
     instance = new Razorpay({
-      key_id: process.env.RAZORPAY_API_KEY,
-      key_secret: process.env.RAZORPAY_API_SECRET,
+      key_id: process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET,
     });
     console.log('✅ Razorpay initialized successfully');
   } else {
     console.warn('⚠️ Razorpay not initialized - Missing API credentials');
-    console.warn('   Set RAZORPAY_API_KEY and RAZORPAY_API_SECRET environment variables');
+    console.warn('   Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET environment variables');
   }
 } catch (error) {
   console.error('❌ Razorpay initialization error:', error.message);

@@ -294,7 +294,8 @@ router.post('/validate-session', (req, res) => {
 
         // In a real app, check session in database/Redis
         // For now, just validate username exists
-        if (username === ADMIN_CREDENTIALS.username) {
+        const dbAdmin = await Admin.findOne({ username });
+        if (dbAdmin || username === process.env.ADMIN_USERNAME) {
             return res.status(200).json({
                 success: true,
                 message: 'Session valid',

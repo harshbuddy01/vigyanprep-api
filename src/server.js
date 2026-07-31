@@ -36,6 +36,9 @@ import userRoutes from './routes/userRoutes.js';
 import analyticsRoutes from './routes/analyticsRoutes.js';
 import migrationRoute from './routes/migrationRoute.js';
 import { verifyUserFull } from './controllers/paymentController.js';
+import heartbeatRoutes from './routes/heartbeatRoutes.js';
+import challengeRoutes from './routes/challengeRoutes.js';
+import adminResultsControlRoutes from './routes/adminResultsControlRoutes.js';
 
 // Validate environment defaults
 validateEnv();
@@ -54,8 +57,16 @@ app.use(helmet({
   contentSecurityPolicy: false,
 }));
 
+const allowedOrigins = ['https://vigyanprep.com', 'https://www.vigyanprep.com', 'https://admin.vigyanprep.com', 'https://test.vigyanprep.com', 'https://auth.vigyanprep.com', 'http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175'];
+
 app.use(cors({
-  origin: true,
+  origin: function(origin, callback) {
+    if(!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
@@ -116,6 +127,10 @@ app.use('/api/pdf', pdfRoutes);
 app.use('/api/doubt', doubtRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/analytics', analyticsRoutes);
+
+app.use('/api/exam/heartbeat', heartbeatRoutes);
+app.use('/api/challenges', challengeRoutes);
+app.use('/api/admin/results-control', adminResultsControlRoutes);
 
 // Static assets & root fallback
 app.use('/frontend', express.static(path.join(__dirname, '../frontend')));

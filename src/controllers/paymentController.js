@@ -185,7 +185,7 @@ export const checkout = async (req, res) => {
       amountInRupees: priceInRupees, // for display
       currency: order.currency,
       testName: testSeries.name,
-      key: process.env.RAZORPAY_API_KEY
+      key: process.env.RAZORPAY_KEY_ID
     };
 
     console.log('📤 Sending response:', JSON.stringify(responseData, null, 2));
@@ -282,7 +282,7 @@ export const paymentVerification = async (req, res) => {
     console.log("🔐 Verifying payment signature...");
     const body = razorpay_order_id + "|" + razorpay_payment_id;
     const expectedSignature = crypto
-      .createHmac("sha256", process.env.RAZORPAY_API_SECRET)
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
       .update(body.toString())
       .digest("hex");
 
