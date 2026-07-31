@@ -212,38 +212,50 @@ export const approveAndPublishPyq = async (req, res) => {
 
     const targetTestId = testSeries.id;
 
-    const questionRows = questions.map((q) => ({
-      test_series_id: targetTestId,
-      test_id: targetTestId,
-      section: q.section || 'Physics',
-      type: q.type || 'MCQ',
-      question_text: q.text,
-      image_url: q.imageUrl || q.image_url || null,
-      options: Array.isArray(q.options) ? q.options : ['Option A', 'Option B', 'Option C', 'Option D'],
-      correct_answer: q.correctAnswer || 'A',
-      explanation: q.explanation || ''
-    }));
+    const buildQuestionRow = (q, variant) => {
+      const row = {
+        question_text: q.text,
+        options: Array.isArray(q.options) ? q.options : ['Option A', 'Option B', 'Option C', 'Option D'],
+        correct_answer: q.correctAnswer || 'A',
+      };
+      if (variant.includes('test_id')) row.test_id = targetTestId;
+      if (variant.includes('test_series_id')) row.test_series_id = targetTestId;
+      if (variant.includes('section')) row.section = q.section || 'Physics';
+      if (variant.includes('type')) row.type = q.type || 'MCQ';
+      if (variant.includes('image_url') && (q.imageUrl || q.image_url)) row.image_url = q.imageUrl || q.image_url;
+      if (variant.includes('explanation') && q.explanation) row.explanation = q.explanation;
+      return row;
+    };
 
-    // Try inserting into questions table, handle optional fields gracefully
+    const questionVariants = [
+      ['test_series_id', 'test_id', 'section', 'type', 'image_url', 'explanation'],
+      ['test_series_id', 'test_id', 'section', 'type', 'image_url'],
+      ['test_series_id', 'test_id', 'section', 'type'],
+      ['test_id', 'section', 'type', 'image_url'],
+      ['test_id', 'section', 'type'],
+      ['test_series_id', 'section', 'type'],
+      ['test_id'],
+      ['test_series_id']
+    ];
+
     let insertedQuestions = [];
-    const qAttempt1 = await supabase.from('questions').insert(questionRows).select();
+    let qError = null;
 
-    if (qAttempt1.error) {
-      console.warn('⚠️ Questions insert attempt 1 warning:', qAttempt1.error.message);
-      // Fallback without test_series_id if it's missing from questions schema
-      const fallbackRows = questionRows.map(({ test_series_id, ...rest }) => rest);
-      const qAttempt2 = await supabase.from('questions').insert(fallbackRows).select();
-      if (qAttempt2.error) {
-        // Fallback without test_id if test_id is missing
-        const fallbackRows2 = questionRows.map(({ test_id, ...rest }) => rest);
-        const qAttempt3 = await supabase.from('questions').insert(fallbackRows2).select();
-        if (qAttempt3.error) throw qAttempt3.error;
-        insertedQuestions = qAttempt3.data || [];
+    for (const variant of questionVariants) {
+      const rows = questions.map(q => buildQuestionRow(q, variant));
+      const res = await supabase.from('questions').insert(rows).select();
+      if (!res.error && res.data) {
+        insertedQuestions = res.data;
+        qError = null;
+        break;
       } else {
-        insertedQuestions = qAttempt2.data || [];
+        qError = res.error;
       }
-    } else {
-      insertedQuestions = qAttempt1.data || [];
+    }
+
+    if (insertedQuestions.length === 0 && qError) {
+      console.error('Questions insert error:', qError);
+      throw new Error(`Failed to insert questions: ${qError.message}`);
     }
 
     return res.status(200).json({
