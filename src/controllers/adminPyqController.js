@@ -11,7 +11,7 @@ function sanitizeText(str) {
     .replace(/\u0000/g, '') // remove null bytes
     .replace(/\\u0000/g, '') // remove literal \u0000
     .replace(/\\u(?![0-9a-fA-F]{4})/g, '\\\\u') // sanitize incomplete unicode escapes
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, ''); // remove control chars
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, ''); // remove non-printable control chars
 }
 
 function extractString(val) {
@@ -93,7 +93,7 @@ function parsePdfTextToQuestions(rawInput) {
         text: restText,
         options: ['', '', '', ''],
         correctAnswer: 'A',
-        status: 'draft_review'
+        status: 'draft'
       };
       continue;
     }
@@ -132,7 +132,7 @@ function parsePdfTextToQuestions(rawInput) {
         text: p.trim(),
         options: ['Option A', 'Option B', 'Option C', 'Option D'],
         correctAnswer: 'A',
-        status: 'draft_review'
+        status: 'draft'
       });
     });
   }
@@ -187,95 +187,63 @@ export const approveAndPublishPyq = async (req, res) => {
       return res.status(400).json({ error: 'Invalid payload: title and questions array required' });
     }
 
-    let testSeries = null;
-    const desc = `Previous Year Question Paper for ${examType || 'IAT'} ${year || new Date().getFullYear()}`;
-    const type = (examType || 'IAT').toUpperCase();
-
-    // Support both 'tests' and 'test_series' tables seamlessly
-    const targetTables = ['tests', 'test_series'];
-    const payloadVariants = [
-      { title, description: desc, test_type: type, total_questions: questions.length, price: 0, is_active: true, duration_minutes: 180 },
-      { title, description: desc, test_type: type, total_questions: questions.length, price: 0, is_active: true },
-      { title, description: desc, exam_type: type, total_questions: questions.length, price: 0, is_active: true },
-      { title, description: desc, total_questions: questions.length, price: 0, is_active: true },
-      { title, description: desc, is_active: true },
-      { title }
-    ];
-
-    let lastError = null;
-    for (const table of targetTables) {
-      for (const payload of payloadVariants) {
-        const res = await supabase.from(table).insert(payload).select().single();
-        if (!res.error && res.data) {
-          testSeries = res.data;
-          break;
-        } else if (res.error) {
-          lastError = res.error;
-        }
-      }
-      if (testSeries) break;
-    }
-
-    if (!testSeries) {
-      console.error('Insert test record error:', lastError);
-      throw new Error(`Could not insert test record: ${lastError ? lastError.message : 'Unknown database error'}`);
-    }
-
-    const targetTestId = testSeries.id;
-
-    const buildQuestionRow = (q, variant) => {
-      const sanitizedText = sanitizeText(q.text || '');
-      const rawOptions = Array.isArray(q.options) ? q.options : ['Option A', 'Option B', 'Option C', 'Option D'];
-      const sanitizedOptions = rawOptions.map(opt => sanitizeText(opt || ''));
-
-      const row = {
-        question_text: sanitizedText,
-        options: sanitizedOptions,
-        correct_answer: q.correctAnswer || 'A',
-        section: q.section || 'Physics',
-      };
-      if (variant.includes('test_id')) row.test_id = targetTestId;
-      if (variant.includes('test_series_id')) row.test_series_id = targetTestId;
-      if (variant.includes('type')) row.type = q.type || 'MCQ';
-      if (variant.includes('image_url') && (q.imageUrl || q.image_url)) row.image_url = sanitizeText(q.imageUrl || q.image_url);
-      if (variant.includes('explanation') && q.explanation) row.explanation = sanitizeText(q.explanation);
-      return row;
+    const testPayload = {
+      title: title.trim(),
+      description: `Previous Year Question Paper for ${examType || 'IAT'} ${year || new Date().getFullYear()}`,
+      exam_type: (examType || 'IAT').toUpperCase(),
+      duration_minutes: 180,
+      is_active: true,
+      is_published: true
     };
 
-    const questionVariants = [
-      ['test_id', 'type', 'image_url', 'explanation'],
-      ['test_id', 'type', 'image_url'],
-      ['test_id', 'type'],
-      ['test_id'],
-      ['test_series_id', 'type', 'image_url', 'explanation'],
-      ['test_series_id', 'type', 'image_url'],
-      ['test_series_id', 'type'],
-      ['test_series_id'],
-      ['type', 'image_url'],
-      ['type'],
-      []
-    ];
+    // 1. Insert test into `tests` table (or fallback to `test_series`)
+    let testRecord = null;
 
-    let insertedQuestions = [];
-    let qError = null;
+    const res1 = await supabase.from('tests').insert(testPayload).select().single();
+    if (!res1.error && res1.data) {
+      testRecord = res1.data;
+    } else {
+      console.warn('tests insert warning, trying test_series fallback:', res1.error?.message);
+      const res2 = await supabase.from('test_series').insert({
+        title: title.trim(),
+        description: testPayload.description,
+        test_type: testPayload.exam_type,
+        total_questions: questions.length,
+        price: 0,
+        is_active: true
+      }).select().single();
 
-    for (const variant of questionVariants) {
-      const rows = questions.map(q => buildQuestionRow(q, variant));
-      const res = await supabase.from('questions').insert(rows).select();
-      if (!res.error && res.data) {
-        insertedQuestions = res.data;
-        qError = null;
-        console.log(`✅ Successfully inserted ${insertedQuestions.length} questions into database using variant:`, variant);
-        break;
-      } else {
-        qError = res.error;
-        console.warn(`⚠️ Question insert variant failed [${variant.join(',')}]:`, res.error?.message);
-      }
+      if (res2.error) throw res1.error || res2.error;
+      testRecord = res2.data;
     }
 
-    if (insertedQuestions.length === 0 && qError) {
-      console.error('Questions insert error:', qError);
-      throw new Error(`Failed to insert questions: ${qError.message}`);
+    const targetTestId = testRecord.id;
+
+    // 2. Format question rows using verified Supabase table schema
+    const questionRows = questions.map((q, idx) => ({
+      test_id: targetTestId,
+      section: q.section || 'Physics',
+      question_number: q.questionNumber || (idx + 1),
+      question_text: sanitizeText(q.text || ''),
+      question_type: q.type || 'MCQ',
+      type: q.type || 'MCQ',
+      options: (Array.isArray(q.options) ? q.options : ['Option A', 'Option B', 'Option C', 'Option D']).map(opt => sanitizeText(opt || '')),
+      correct_answer: q.correctAnswer || 'A',
+      image_url: q.imageUrl || q.image_url ? sanitizeText(q.imageUrl || q.image_url) : null,
+      marks_positive: 4,
+      marks_negative: -1,
+      status: 'draft'
+    }));
+
+    // 3. Insert questions into `questions` table
+    const { data: insertedQuestions, error: qErr } = await supabase
+      .from('questions')
+      .insert(questionRows)
+      .select();
+
+    if (qErr) {
+      console.error('Questions batch insert error:', qErr);
+      throw qErr;
     }
 
     return res.status(200).json({
@@ -286,19 +254,19 @@ export const approveAndPublishPyq = async (req, res) => {
     });
   } catch (error) {
     console.error('Publish PYQ Error:', error);
-    return res.status(500).json({ error: 'Failed to publish PYQ', details: error.message });
+    return res.status(500).json({ error: 'Failed to publish PYQ', details: error.message || error });
   }
 };
 
 export const getPyqList = async (req, res) => {
   try {
     let { data, error } = await supabase
-      .from('test_series')
+      .from('tests')
       .select('*')
       .order('created_at', { ascending: false });
 
     if (error) {
-      const fallback = await supabase.from('tests').select('*').order('created_at', { ascending: false });
+      const fallback = await supabase.from('test_series').select('*').order('created_at', { ascending: false });
       data = fallback.data;
       error = fallback.error;
     }
