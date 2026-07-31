@@ -1,7 +1,7 @@
 import { supabase } from '../db/supabase.js';
-import pdfParseModule from 'pdf-parse';
-
-const pdfParse = typeof pdfParseModule === 'function' ? pdfParseModule : (pdfParseModule && pdfParseModule.default) || pdfParseModule;
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const pdfParse = require('pdf-parse');
 
 export const uploadAndParsePdf = async (req, res) => {
   try {
