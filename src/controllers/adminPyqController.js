@@ -2,7 +2,8 @@ import { createRequire } from 'module';
 import { supabase } from '../db/supabase.js';
 
 const require = createRequire(import.meta.url);
-const pdfParse = require('pdf-parse');
+const pdfModule = require('pdf-parse');
+const { PDFParse } = pdfModule;
 
 /**
  * Helper to parse text into structured questions and sections
@@ -100,13 +101,29 @@ export const uploadAndParsePdf = async (req, res) => {
     }
 
     const pdfBuffer = req.file.buffer;
-    const parsedData = await pdfParse(pdfBuffer);
-    const parsedQuestions = parsePdfTextToQuestions(parsedData.text);
+    let rawText = '';
+    let pageCount = 1;
+
+    if (typeof pdfModule === 'function') {
+      const parsedData = await pdfModule(pdfBuffer);
+      rawText = parsedData.text || '';
+      pageCount = parsedData.numpages || 1;
+    } else if (PDFParse) {
+      const parser = new PDFParse(new Uint8Array(pdfBuffer));
+      await parser.load();
+      rawText = (await parser.getText()) || '';
+      const info = await parser.getInfo().catch(() => ({}));
+      pageCount = info?.numpages || 1;
+    } else {
+      throw new Error('PDF parsing engine unavailable');
+    }
+
+    const parsedQuestions = parsePdfTextToQuestions(rawText);
 
     return res.status(200).json({
       success: true,
       fileName: req.file.originalname,
-      totalPageCount: parsedData.numpages,
+      totalPageCount: pageCount,
       totalParsedQuestions: parsedQuestions.length,
       questions: parsedQuestions
     });
