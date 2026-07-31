@@ -228,14 +228,19 @@ export const approveAndPublishPyq = async (req, res) => {
     };
 
     const questionVariants = [
-      ['test_series_id', 'test_id', 'section', 'type', 'image_url', 'explanation'],
-      ['test_series_id', 'test_id', 'section', 'type', 'image_url'],
-      ['test_series_id', 'test_id', 'section', 'type'],
+      ['test_id', 'section', 'type', 'image_url', 'explanation'],
       ['test_id', 'section', 'type', 'image_url'],
       ['test_id', 'section', 'type'],
-      ['test_series_id', 'section', 'type'],
+      ['test_id', 'section'],
       ['test_id'],
-      ['test_series_id']
+      ['test_series_id', 'section', 'type', 'image_url', 'explanation'],
+      ['test_series_id', 'section', 'type', 'image_url'],
+      ['test_series_id', 'section', 'type'],
+      ['test_series_id', 'section'],
+      ['test_series_id'],
+      ['section', 'type', 'image_url'],
+      ['section', 'type'],
+      []
     ];
 
     let insertedQuestions = [];
@@ -247,9 +252,11 @@ export const approveAndPublishPyq = async (req, res) => {
       if (!res.error && res.data) {
         insertedQuestions = res.data;
         qError = null;
+        console.log(`✅ Successfully inserted ${insertedQuestions.length} questions into database using variant:`, variant);
         break;
       } else {
         qError = res.error;
+        console.warn(`⚠️ Question insert variant failed [${variant.join(',')}]:`, res.error?.message);
       }
     }
 
