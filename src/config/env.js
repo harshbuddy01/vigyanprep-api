@@ -25,41 +25,16 @@ const possiblePaths = [
   path.join(process.cwd(), 'backend/.env'),  // working dir + backend/.env
 ];
 
-// In production (Railway/Render), skip local .env file search
-if (IS_PROD) {
-  if (IS_DEBUG) console.log('🔒 Production mode: Skipping local .env discovery');
-} else {
-  if (IS_DEBUG) console.log('\n🔍 Searching for .env file in multiple locations:');
-
-  for (const testPath of possiblePaths) {
-    if (IS_DEBUG) console.log(`   Trying: ${testPath}`);
-    if (fs.existsSync(testPath)) {
-      if (IS_DEBUG) console.log(`   ✅ FOUND at: ${testPath}`);
-      envPath = testPath;
-      break;
-    } else if (IS_DEBUG) {
-      console.log(`   ❌ Not found`);
-    }
+// Always load .env file if it exists on disk
+for (const testPath of possiblePaths) {
+  if (fs.existsSync(testPath)) {
+    envPath = testPath;
+    break;
   }
+}
 
-  if (!envPath) {
-    console.warn('\n⚠️  .env file NOT FOUND in any location!');
-    console.warn('   (This is normal in production environments like Railway)');
-  } else {
-    console.log(`\n🔧 Loading .env from: ${envPath}`);
-    try {
-      const result = dotenv.config({ path: envPath });
-
-      if (result.error) {
-        console.error('   ❌ Error parsing .env file:', result.error.message);
-      } else {
-        const varCount = Object.keys(result.parsed || {}).length;
-        if (IS_DEBUG) console.log(`   ✅ Successfully loaded ${varCount} variables from .env file`);
-      }
-    } catch (err) {
-      console.error('   ❌ Error reading .env file:', err.message);
-    }
-  }
+if (envPath) {
+  dotenv.config({ path: envPath });
 }
 
 // 🔴 Verify environment variables
