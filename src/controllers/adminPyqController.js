@@ -173,33 +173,28 @@ export const approveAndPublishPyq = async (req, res) => {
     }
 
     let testSeries = null;
-    const basePayload = {
-      title,
-      description: `Previous Year Question Paper for ${examType || 'IAT'} ${year || new Date().getFullYear()}`,
-      test_type: (examType || 'IAT').toUpperCase(),
-      total_questions: questions.length,
-      price: 0,
-      is_active: true
-    };
+    const desc = `Previous Year Question Paper for ${examType || 'IAT'} ${year || new Date().getFullYear()}`;
+    const type = (examType || 'IAT').toUpperCase();
 
-    const attempt1 = await supabase
-      .from('test_series')
-      .insert({ ...basePayload, duration_minutes: 180 })
-      .select()
-      .single();
+    const payloadVariants = [
+      { title, description: desc, test_type: type, total_questions: questions.length, price: 0, is_active: true, duration_minutes: 180 },
+      { title, description: desc, test_type: type, total_questions: questions.length, price: 0, is_active: true },
+      { title, description: desc, exam_type: type, total_questions: questions.length, price: 0, is_active: true },
+      { title, description: desc, total_questions: questions.length, price: 0, is_active: true },
+      { title, description: desc, is_active: true },
+      { title }
+    ];
 
-    if (attempt1.error) {
-      console.warn('⚠️ test_series insertion warning, falling back without duration_minutes:', attempt1.error.message);
-      const attempt2 = await supabase
-        .from('test_series')
-        .insert(basePayload)
-        .select()
-        .single();
+    for (const payload of payloadVariants) {
+      const res = await supabase.from('test_series').insert(payload).select().single();
+      if (!res.error && res.data) {
+        testSeries = res.data;
+        break;
+      }
+    }
 
-      if (attempt2.error) throw attempt2.error;
-      testSeries = attempt2.data;
-    } else {
-      testSeries = attempt1.data;
+    if (!testSeries) {
+      throw new Error('Could not insert test_series record into database');
     }
 
     const questionRows = questions.map((q) => ({
