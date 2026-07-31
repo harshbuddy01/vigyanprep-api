@@ -14,7 +14,7 @@ function extractString(val) {
 }
 
 /**
- * Helper to parse text into structured questions and sections
+ * Helper to parse text into structured questions and sections accurately
  */
 function parsePdfTextToQuestions(rawInput) {
   const rawText = extractString(rawInput);
@@ -23,15 +23,7 @@ function parsePdfTextToQuestions(rawInput) {
   let currentSection = 'Physics';
   let currentQ = null;
 
-  const sectionKeywords = {
-    physics: 'Physics',
-    chemistry: 'Chemistry',
-    math: 'Mathematics',
-    mathematics: 'Mathematics',
-    biology: 'Biology'
-  };
-
-  // Section header matcher (standalone words or headings like BIOLOGY, CHEMISTRY, etc.)
+  // Section header matcher
   const detectSectionHeader = (text) => {
     const clean = text.trim().toLowerCase();
     if (/\b(biology|bio)\b/i.test(clean)) return 'Biology';
@@ -51,30 +43,40 @@ function parsePdfTextToQuestions(rawInput) {
     return null;
   };
 
+  const isIgnoredLine = (line) => {
+    const l = line.toLowerCase();
+    return /^(page\s+\d+|total\s+marks|time\s+allowed|instructions|space\s+for\s+rough|rough\s+work|www\.|http|copyright)/i.test(l);
+  };
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
-    if (!line) continue;
+    if (!line || isIgnoredLine(line)) continue;
 
     // Check if standalone heading line specifies section
     const foundSection = detectSectionHeader(line);
-    if (foundSection && line.length < 50 && !line.match(/^(?:Q|Question|\d+[\.\:)])/i)) {
+    if (foundSection && line.length < 60 && !line.match(/^(?:Q|Question|\d+[\.\:)])/i)) {
       currentSection = foundSection;
       continue;
     }
 
+    // Match question starts like "Q.1", "Question 15", "1.", "1)"
     const qMatch = line.match(/^(?:Q(?:uestion)?\s*(\d+)[\.:\)]|(\d+)[\.:\)])\s*(.*)/i);
     if (qMatch) {
-      if (currentQ && currentQ.text) {
-        // Run auto-detection fallback if currentSection hasn't changed
+      const qNumStr = qMatch[1] || qMatch[2];
+      const restText = qMatch[3] || '';
+
+      // Skip lines that look like ranges e.g. "1 to 15" or "Q1 - Q15"
+      if (restText.match(/^(?:to|-)\s*\d+/i)) continue;
+
+      if (currentQ && currentQ.text && currentQ.text.trim().length > 5) {
         const contentSec = autoDetectSection(currentQ.text);
         if (contentSec) currentQ.section = contentSec;
         questions.push(currentQ);
       }
-      const qNum = qMatch[1] || qMatch[2];
-      const restText = qMatch[3] || '';
+
       currentQ = {
         tempId: `q_${questions.length + 1}`,
-        questionNumber: parseInt(qNum, 10),
+        questionNumber: parseInt(qNumStr, 10),
         section: foundSection || currentSection,
         type: 'MCQ',
         text: restText,
@@ -95,14 +97,16 @@ function parsePdfTextToQuestions(rawInput) {
           currentQ.options[idx] = optVal;
         }
       } else {
-        if (!currentQ.options.some(o => o.length > 0)) {
+        if (!currentQ.options.some(o => o && o.length > 0)) {
           currentQ.text += ' ' + line;
         }
       }
     }
   }
 
-  if (currentQ && currentQ.text) {
+  if (currentQ && currentQ.text && currentQ.text.trim().length > 5) {
+    const contentSec = autoDetectSection(currentQ.text);
+    if (contentSec) currentQ.section = contentSec;
     questions.push(currentQ);
   }
 
@@ -176,6 +180,8 @@ export const approveAndPublishPyq = async (req, res) => {
     const desc = `Previous Year Question Paper for ${examType || 'IAT'} ${year || new Date().getFullYear()}`;
     const type = (examType || 'IAT').toUpperCase();
 
+    // Support both 'tests' and 'test_series' tables seamlessly
+    const targetTables = ['tests', 'test_series'];
     const payloadVariants = [
       { title, description: desc, test_type: type, total_questions: questions.length, price: 0, is_active: true, duration_minutes: 180 },
       { title, description: desc, test_type: type, total_questions: questions.length, price: 0, is_active: true },
@@ -185,20 +191,30 @@ export const approveAndPublishPyq = async (req, res) => {
       { title }
     ];
 
-    for (const payload of payloadVariants) {
-      const res = await supabase.from('test_series').insert(payload).select().single();
-      if (!res.error && res.data) {
-        testSeries = res.data;
-        break;
+    let lastError = null;
+    for (const table of targetTables) {
+      for (const payload of payloadVariants) {
+        const res = await supabase.from(table).insert(payload).select().single();
+        if (!res.error && res.data) {
+          testSeries = res.data;
+          break;
+        } else if (res.error) {
+          lastError = res.error;
+        }
       }
+      if (testSeries) break;
     }
 
     if (!testSeries) {
-      throw new Error('Could not insert test_series record into database');
+      console.error('Insert test record error:', lastError);
+      throw new Error(`Could not insert test record: ${lastError ? lastError.message : 'Unknown database error'}`);
     }
 
+    const targetTestId = testSeries.id;
+
     const questionRows = questions.map((q) => ({
-      test_series_id: testSeries.id,
+      test_series_id: targetTestId,
+      test_id: targetTestId,
       section: q.section || 'Physics',
       type: q.type || 'MCQ',
       question_text: q.text,
@@ -208,17 +224,32 @@ export const approveAndPublishPyq = async (req, res) => {
       explanation: q.explanation || ''
     }));
 
-    const { data: insertedQuestions, error: qErr } = await supabase
-      .from('questions')
-      .insert(questionRows)
-      .select();
+    // Try inserting into questions table, handle optional fields gracefully
+    let insertedQuestions = [];
+    const qAttempt1 = await supabase.from('questions').insert(questionRows).select();
 
-    if (qErr) throw qErr;
+    if (qAttempt1.error) {
+      console.warn('⚠️ Questions insert attempt 1 warning:', qAttempt1.error.message);
+      // Fallback without test_series_id if it's missing from questions schema
+      const fallbackRows = questionRows.map(({ test_series_id, ...rest }) => rest);
+      const qAttempt2 = await supabase.from('questions').insert(fallbackRows).select();
+      if (qAttempt2.error) {
+        // Fallback without test_id if test_id is missing
+        const fallbackRows2 = questionRows.map(({ test_id, ...rest }) => rest);
+        const qAttempt3 = await supabase.from('questions').insert(fallbackRows2).select();
+        if (qAttempt3.error) throw qAttempt3.error;
+        insertedQuestions = qAttempt3.data || [];
+      } else {
+        insertedQuestions = qAttempt2.data || [];
+      }
+    } else {
+      insertedQuestions = qAttempt1.data || [];
+    }
 
     return res.status(200).json({
       success: true,
       message: 'PYQ successfully published to main website & exam portal!',
-      testId: testSeries.id,
+      testId: targetTestId,
       questionsCount: insertedQuestions.length
     });
   } catch (error) {
@@ -229,14 +260,19 @@ export const approveAndPublishPyq = async (req, res) => {
 
 export const getPyqList = async (req, res) => {
   try {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('test_series')
       .select('*')
-      .eq('is_active', true)
       .order('created_at', { ascending: false });
 
+    if (error) {
+      const fallback = await supabase.from('tests').select('*').order('created_at', { ascending: false });
+      data = fallback.data;
+      error = fallback.error;
+    }
+
     if (error) throw error;
-    return res.status(200).json({ success: true, tests: data });
+    return res.status(200).json({ success: true, tests: data || [] });
   } catch (error) {
     return res.status(500).json({ error: 'Failed to fetch PYQs', details: error.message });
   }
