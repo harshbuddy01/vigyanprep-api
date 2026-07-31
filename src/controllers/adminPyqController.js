@@ -232,10 +232,10 @@ export const approveAndPublishPyq = async (req, res) => {
         question_text: sanitizedText,
         options: sanitizedOptions,
         correct_answer: q.correctAnswer || 'A',
+        section: q.section || 'Physics',
       };
       if (variant.includes('test_id')) row.test_id = targetTestId;
       if (variant.includes('test_series_id')) row.test_series_id = targetTestId;
-      if (variant.includes('section')) row.section = q.section || 'Physics';
       if (variant.includes('type')) row.type = q.type || 'MCQ';
       if (variant.includes('image_url') && (q.imageUrl || q.image_url)) row.image_url = sanitizeText(q.imageUrl || q.image_url);
       if (variant.includes('explanation') && q.explanation) row.explanation = sanitizeText(q.explanation);
@@ -243,18 +243,16 @@ export const approveAndPublishPyq = async (req, res) => {
     };
 
     const questionVariants = [
-      ['test_id', 'section', 'type', 'image_url', 'explanation'],
-      ['test_id', 'section', 'type', 'image_url'],
-      ['test_id', 'section', 'type'],
-      ['test_id', 'section'],
+      ['test_id', 'type', 'image_url', 'explanation'],
+      ['test_id', 'type', 'image_url'],
+      ['test_id', 'type'],
       ['test_id'],
-      ['test_series_id', 'section', 'type', 'image_url', 'explanation'],
-      ['test_series_id', 'section', 'type', 'image_url'],
-      ['test_series_id', 'section', 'type'],
-      ['test_series_id', 'section'],
+      ['test_series_id', 'type', 'image_url', 'explanation'],
+      ['test_series_id', 'type', 'image_url'],
+      ['test_series_id', 'type'],
       ['test_series_id'],
-      ['section', 'type', 'image_url'],
-      ['section', 'type'],
+      ['type', 'image_url'],
+      ['type'],
       []
     ];
 
