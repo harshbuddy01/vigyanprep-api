@@ -279,7 +279,7 @@ router.post('/forgot-password', forgotPasswordLimiter, async (req, res) => {
  * POST /api/admin/auth/validate-session
  * Validate if admin session is still active
  */
-router.post('/validate-session', (req, res) => {
+router.post('/validate-session', async (req, res) => {
     try {
         const { username } = req.body;
 
