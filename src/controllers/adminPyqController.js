@@ -5,12 +5,23 @@ const require = createRequire(import.meta.url);
 const pdfModule = require('pdf-parse');
 const { PDFParse } = pdfModule;
 
+function sanitizeText(str) {
+  if (typeof str !== 'string') return str;
+  return str
+    .replace(/\u0000/g, '') // remove null bytes
+    .replace(/\\u0000/g, '') // remove literal \u0000
+    .replace(/\\u(?![0-9a-fA-F]{4})/g, '\\\\u') // sanitize incomplete unicode escapes
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, ''); // remove control chars
+}
+
 function extractString(val) {
-  if (typeof val === 'string') return val;
-  if (!val) return '';
-  if (typeof val.text === 'string') return val.text;
-  if (Array.isArray(val.pages)) return val.pages.map(p => (typeof p === 'string' ? p : (p.text || ''))).join('\n');
-  return String(val);
+  let str = '';
+  if (typeof val === 'string') str = val;
+  else if (!val) str = '';
+  else if (typeof val.text === 'string') str = val.text;
+  else if (Array.isArray(val.pages)) str = val.pages.map(p => (typeof p === 'string' ? p : (p.text || ''))).join('\n');
+  else str = String(val);
+  return sanitizeText(str);
 }
 
 /**
@@ -213,17 +224,21 @@ export const approveAndPublishPyq = async (req, res) => {
     const targetTestId = testSeries.id;
 
     const buildQuestionRow = (q, variant) => {
+      const sanitizedText = sanitizeText(q.text || '');
+      const rawOptions = Array.isArray(q.options) ? q.options : ['Option A', 'Option B', 'Option C', 'Option D'];
+      const sanitizedOptions = rawOptions.map(opt => sanitizeText(opt || ''));
+
       const row = {
-        question_text: q.text,
-        options: Array.isArray(q.options) ? q.options : ['Option A', 'Option B', 'Option C', 'Option D'],
+        question_text: sanitizedText,
+        options: sanitizedOptions,
         correct_answer: q.correctAnswer || 'A',
       };
       if (variant.includes('test_id')) row.test_id = targetTestId;
       if (variant.includes('test_series_id')) row.test_series_id = targetTestId;
       if (variant.includes('section')) row.section = q.section || 'Physics';
       if (variant.includes('type')) row.type = q.type || 'MCQ';
-      if (variant.includes('image_url') && (q.imageUrl || q.image_url)) row.image_url = q.imageUrl || q.image_url;
-      if (variant.includes('explanation') && q.explanation) row.explanation = q.explanation;
+      if (variant.includes('image_url') && (q.imageUrl || q.image_url)) row.image_url = sanitizeText(q.imageUrl || q.image_url);
+      if (variant.includes('explanation') && q.explanation) row.explanation = sanitizeText(q.explanation);
       return row;
     };
 
