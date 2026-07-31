@@ -39,6 +39,7 @@ import { verifyUserFull } from './controllers/paymentController.js';
 import heartbeatRoutes from './routes/heartbeatRoutes.js';
 import challengeRoutes from './routes/challengeRoutes.js';
 import adminResultsControlRoutes from './routes/adminResultsControlRoutes.js';
+import examAccessRoutes from './routes/examAccessRoutes.js';
 
 // Validate environment defaults
 validateEnv();
@@ -131,6 +132,7 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/exam/heartbeat', heartbeatRoutes);
 app.use('/api/challenges', challengeRoutes);
 app.use('/api/admin/results-control', adminResultsControlRoutes);
+app.use('/api/exam-access', examAccessRoutes);
 
 // Static assets & root fallback
 app.use('/frontend', express.static(path.join(__dirname, '../frontend')));
@@ -141,6 +143,20 @@ app.get('/', (req, res) => {
     name: 'Vigyan.prep API',
     status: 'online',
     version: '2.0.0'
+  });
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ success: false, message: `Route ${req.method} ${req.path} not found` });
+});
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err.stack || err.message);
+  res.status(err.status || 500).json({
+    success: false,
+    message: process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message
   });
 });
 

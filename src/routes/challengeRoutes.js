@@ -1,15 +1,16 @@
 import express from 'express';
 import { supabase } from '../db/supabase.js';
 import { recalculateAllScores } from '../utils/recalculateScores.js';
+import { verifyAuth } from '../middlewares/auth.js';
+import { verifyAdminAuth } from '../middlewares/adminAuth.js';
 
 const router = express.Router();
 
 // POST /api/challenges - Student submits challenge
-router.post('/', async (req, res) => {
+router.post('/', verifyAuth, async (req, res) => {
     try {
         const { test_id, question_id, reason, proof_image_url } = req.body;
-        // In real app, get student_id from auth token
-        const student_id = req.user?.id || 'temp_student_id';
+        const student_id = req.user.id;
 
         const { data, error } = await supabase
             .from('challenges')
@@ -24,7 +25,7 @@ router.post('/', async (req, res) => {
 });
 
 // GET /api/challenges - Admin gets challenges
-router.get('/', async (req, res) => {
+router.get('/', verifyAdminAuth, async (req, res) => {
     try {
         const { test_id } = req.query;
         let query = supabase.from('challenges').select('*');
@@ -39,10 +40,10 @@ router.get('/', async (req, res) => {
 });
 
 // PATCH /api/challenges/:id/accept - Admin accepts challenge
-router.patch('/:id/accept', async (req, res) => {
+router.patch('/:id/accept', verifyAdminAuth, async (req, res) => {
     try {
         const { id } = req.params;
-        const { examType } = req.body; // Needed for recalculation
+        const { newAnswer } = req.body;
 
         const { data: challenge, error: getError } = await supabase
             .from('challenges')
@@ -51,6 +52,24 @@ router.patch('/:id/accept', async (req, res) => {
             .single();
 
         if (getError) throw getError;
+
+        // Fetch examType from the test record
+        const { data: test, error: testError } = await supabase
+            .from('tests')
+            .select('exam_type')
+            .eq('id', challenge.test_id)
+            .single();
+
+        if (testError || !test) throw new Error('Test not found');
+        const examType = test.exam_type;
+
+        // Update the questions table correct_answer
+        const { error: updateQuestionError } = await supabase
+            .from('questions')
+            .update({ correct_answer: newAnswer })
+            .eq('id', challenge.question_id);
+            
+        if (updateQuestionError) throw updateQuestionError;
 
         // Update challenge status
         const { data, error } = await supabase
@@ -73,7 +92,7 @@ router.patch('/:id/accept', async (req, res) => {
 });
 
 // PATCH /api/challenges/:id/reject - Admin rejects challenge
-router.patch('/:id/reject', async (req, res) => {
+router.patch('/:id/reject', verifyAdminAuth, async (req, res) => {
     try {
         const { id } = req.params;
         const { admin_reply, admin_proof_url } = req.body;

@@ -1,8 +1,11 @@
 import express from 'express';
 import { supabase } from '../db/supabase.js';
 import { generateMeritList } from '../services/meritListService.js';
+import { verifyAdminAuth } from '../middlewares/adminAuth.js';
 
 const router = express.Router();
+
+router.use(verifyAdminAuth);
 
 router.post('/:testId/release-responses', async (req, res) => {
     try {

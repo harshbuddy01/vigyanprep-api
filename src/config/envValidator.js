@@ -1,26 +1,21 @@
 /**
  * Environment Variable Validator
- * Ensures default fallback secrets are set so server runs smoothly on Supabase + GCP.
  */
 
-const DEFAULT_FALLBACKS = {
-  JWT_SECRET: 'vigyanprep_production_jwt_secret_2026',
-  JWT_ADMIN_SECRET: 'vigyanprep_admin_secret_key_2026',
-  ADMIN_USERNAME: 'admin',
-  ADMIN_PASSWORD_HASH: 'admin123',
-  SUPABASE_URL: 'https://nmtixpogvdfyqvgkzzfs.supabase.co',
-  PORT: '5000'
-};
+const REQUIRED_VARS = ['JWT_SECRET', 'JWT_ADMIN_SECRET', 'SUPABASE_URL', 'SUPABASE_KEY'];
 
 export function validateEnv() {
   console.log('🛡️  Configuring environment variables...');
 
-  // Set default fallbacks for any missing optional variables
-  Object.entries(DEFAULT_FALLBACKS).forEach(([key, value]) => {
+  REQUIRED_VARS.forEach(key => {
     if (!process.env[key]) {
-      process.env[key] = value;
+      throw new Error(`FATAL: Missing required environment variable: ${key}. Server cannot start.`);
     }
   });
 
-  console.log('✅ Environment configuration initialized.');
+  if (!process.env.PORT) {
+    process.env.PORT = '5000';
+  }
+
+  console.log('✅ All required environment variables present.');
 }
