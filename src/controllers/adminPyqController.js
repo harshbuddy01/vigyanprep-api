@@ -172,21 +172,35 @@ export const approveAndPublishPyq = async (req, res) => {
       return res.status(400).json({ error: 'Invalid payload: title and questions array required' });
     }
 
-    const { data: testSeries, error: testErr } = await supabase
+    let testSeries = null;
+    const basePayload = {
+      title,
+      description: `Previous Year Question Paper for ${examType || 'IAT'} ${year || new Date().getFullYear()}`,
+      test_type: (examType || 'IAT').toUpperCase(),
+      total_questions: questions.length,
+      price: 0,
+      is_active: true
+    };
+
+    const attempt1 = await supabase
       .from('test_series')
-      .insert({
-        title,
-        description: `Previous Year Question Paper for ${examType || 'IAT'} ${year || new Date().getFullYear()}`,
-        test_type: (examType || 'IAT').toUpperCase(),
-        total_questions: questions.length,
-        duration_minutes: 180,
-        price: 0,
-        is_active: true
-      })
+      .insert({ ...basePayload, duration_minutes: 180 })
       .select()
       .single();
 
-    if (testErr) throw testErr;
+    if (attempt1.error) {
+      console.warn('⚠️ test_series insertion warning, falling back without duration_minutes:', attempt1.error.message);
+      const attempt2 = await supabase
+        .from('test_series')
+        .insert(basePayload)
+        .select()
+        .single();
+
+      if (attempt2.error) throw attempt2.error;
+      testSeries = attempt2.data;
+    } else {
+      testSeries = attempt1.data;
+    }
 
     const questionRows = questions.map((q) => ({
       test_series_id: testSeries.id,
