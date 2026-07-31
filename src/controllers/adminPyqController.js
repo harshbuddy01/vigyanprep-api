@@ -5,10 +5,19 @@ const require = createRequire(import.meta.url);
 const pdfModule = require('pdf-parse');
 const { PDFParse } = pdfModule;
 
+function extractString(val) {
+  if (typeof val === 'string') return val;
+  if (!val) return '';
+  if (typeof val.text === 'string') return val.text;
+  if (Array.isArray(val.pages)) return val.pages.map(p => (typeof p === 'string' ? p : (p.text || ''))).join('\n');
+  return String(val);
+}
+
 /**
  * Helper to parse text into structured questions and sections
  */
-function parsePdfTextToQuestions(rawText) {
+function parsePdfTextToQuestions(rawInput) {
+  const rawText = extractString(rawInput);
   const lines = rawText.split('\n');
   const questions = [];
   let currentSection = 'Physics';
