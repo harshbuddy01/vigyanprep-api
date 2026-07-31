@@ -58,7 +58,7 @@ app.use(helmet({
   contentSecurityPolicy: false,
 }));
 
-const allowedOrigins = ['https://vigyanprep.com', 'https://www.vigyanprep.com', 'https://admin.vigyanprep.com', 'https://test.vigyanprep.com', 'https://auth.vigyanprep.com', 'http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175'];
+const allowedOrigins = ['https://vigyanprep.com', 'https://www.vigyanprep.com', 'https://admin.vigyanprep.com', 'https://test.vigyanprep.com', 'https://auth.vigyanprep.com', 'https://vigyan-prep.vercel.app', 'http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175'];
 
 app.use(cors({
   origin: function(origin, callback) {
