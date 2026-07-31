@@ -12,7 +12,7 @@ export const getPublicTests = async (req, res) => {
       data = fallback.data;
     }
 
-    return res.status(200).json({ success: true, tests: data || [] });
+    return res.status(200).json({ success: true, tests: data || [], pyqs: data || [] });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to fetch tests', details: err.message });
   }
@@ -30,7 +30,7 @@ export const getPublicPyqs = async (req, res) => {
       data = fallback.data;
     }
 
-    return res.status(200).json({ success: true, pyqs: data || [] });
+    return res.status(200).json({ success: true, tests: data || [], pyqs: data || [] });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to fetch PYQs', details: err.message });
   }
