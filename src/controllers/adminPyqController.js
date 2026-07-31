@@ -31,21 +31,43 @@ function parsePdfTextToQuestions(rawInput) {
     biology: 'Biology'
   };
 
+  // Section header matcher (standalone words or headings like BIOLOGY, CHEMISTRY, etc.)
+  const detectSectionHeader = (text) => {
+    const clean = text.trim().toLowerCase();
+    if (/\b(biology|bio)\b/i.test(clean)) return 'Biology';
+    if (/\b(chemistry|chem)\b/i.test(clean)) return 'Chemistry';
+    if (/\b(mathematics|maths|math)\b/i.test(clean)) return 'Mathematics';
+    if (/\b(physics|phys)\b/i.test(clean)) return 'Physics';
+    return null;
+  };
+
+  // Content-based keyword auto-classifier
+  const autoDetectSection = (text) => {
+    const t = text.toLowerCase();
+    if (/\b(dna|rna|gene|genetic|pedigree|protein|enzyme|cell|organism|chromosome|allele|mitosis|meiosis|amino|strand|inheritance)\b/i.test(t)) return 'Biology';
+    if (/\b(acid|base|reaction|mole|molar|element|compound|isotope|catalyst|oxidation|reduction|orbital|isomer|ph\b|solution|titration)\b/i.test(t)) return 'Chemistry';
+    if (/\b(integral|derivative|calculus|matrix|matrices|determinant|vector|probability|permutation|combination|equation|logarithm|trigonometry|cos|sin|tan|polynomial)\b/i.test(t)) return 'Mathematics';
+    if (/\b(velocity|acceleration|force|torque|momentum|magnetic|electric|wavelength|refraction|lens|current|voltage|resistance|friction|capacitor|gravitation)\b/i.test(t)) return 'Physics';
+    return null;
+  };
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
 
-    const lowerLine = line.toLowerCase();
-    for (const [key, sectionName] of Object.entries(sectionKeywords)) {
-      if (lowerLine.includes(`section`) && lowerLine.includes(key)) {
-        currentSection = sectionName;
-        break;
-      }
+    // Check if standalone heading line specifies section
+    const foundSection = detectSectionHeader(line);
+    if (foundSection && line.length < 50 && !line.match(/^(?:Q|Question|\d+[\.\:)])/i)) {
+      currentSection = foundSection;
+      continue;
     }
 
     const qMatch = line.match(/^(?:Q(?:uestion)?\s*(\d+)[\.:\)]|(\d+)[\.:\)])\s*(.*)/i);
     if (qMatch) {
       if (currentQ && currentQ.text) {
+        // Run auto-detection fallback if currentSection hasn't changed
+        const contentSec = autoDetectSection(currentQ.text);
+        if (contentSec) currentQ.section = contentSec;
         questions.push(currentQ);
       }
       const qNum = qMatch[1] || qMatch[2];
@@ -53,7 +75,7 @@ function parsePdfTextToQuestions(rawInput) {
       currentQ = {
         tempId: `q_${questions.length + 1}`,
         questionNumber: parseInt(qNum, 10),
-        section: currentSection,
+        section: foundSection || currentSection,
         type: 'MCQ',
         text: restText,
         options: ['', '', '', ''],
