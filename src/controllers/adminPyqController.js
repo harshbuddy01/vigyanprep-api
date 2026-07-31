@@ -1,144 +1,5 @@
-import { createRequire } from 'module';
 import { supabase } from '../db/supabase.js';
-
-const require = createRequire(import.meta.url);
-const pdfModule = require('pdf-parse');
-const { PDFParse } = pdfModule;
-
-function sanitizeText(str) {
-  if (typeof str !== 'string') return str;
-  return str
-    .replace(/\u0000/g, '') // remove null bytes
-    .replace(/\\u0000/g, '') // remove literal \u0000
-    .replace(/\\u(?![0-9a-fA-F]{4})/g, '\\\\u') // sanitize incomplete unicode escapes
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, ''); // remove non-printable control chars
-}
-
-function extractString(val) {
-  let str = '';
-  if (typeof val === 'string') str = val;
-  else if (!val) str = '';
-  else if (typeof val.text === 'string') str = val.text;
-  else if (Array.isArray(val.pages)) str = val.pages.map(p => (typeof p === 'string' ? p : (p.text || ''))).join('\n');
-  else str = String(val);
-  return sanitizeText(str);
-}
-
-/**
- * Helper to parse text into structured questions and sections accurately
- */
-function parsePdfTextToQuestions(rawInput) {
-  const rawText = extractString(rawInput);
-  const lines = rawText.split('\n');
-  const questions = [];
-  let currentSection = 'Physics';
-  let currentQ = null;
-
-  // Section header matcher
-  const detectSectionHeader = (text) => {
-    const clean = text.trim().toLowerCase();
-    if (/\b(biology|bio)\b/i.test(clean)) return 'Biology';
-    if (/\b(chemistry|chem)\b/i.test(clean)) return 'Chemistry';
-    if (/\b(mathematics|maths|math)\b/i.test(clean)) return 'Mathematics';
-    if (/\b(physics|phys)\b/i.test(clean)) return 'Physics';
-    return null;
-  };
-
-  // Content-based keyword auto-classifier
-  const autoDetectSection = (text) => {
-    const t = text.toLowerCase();
-    if (/\b(dna|rna|gene|genetic|pedigree|protein|enzyme|cell|organism|chromosome|allele|mitosis|meiosis|amino|strand|inheritance)\b/i.test(t)) return 'Biology';
-    if (/\b(acid|base|reaction|mole|molar|element|compound|isotope|catalyst|oxidation|reduction|orbital|isomer|ph\b|solution|titration)\b/i.test(t)) return 'Chemistry';
-    if (/\b(integral|derivative|calculus|matrix|matrices|determinant|vector|probability|permutation|combination|equation|logarithm|trigonometry|cos|sin|tan|polynomial)\b/i.test(t)) return 'Mathematics';
-    if (/\b(velocity|acceleration|force|torque|momentum|magnetic|electric|wavelength|refraction|lens|current|voltage|resistance|friction|capacitor|gravitation)\b/i.test(t)) return 'Physics';
-    return null;
-  };
-
-  const isIgnoredLine = (line) => {
-    const l = line.toLowerCase();
-    return /^(page\s+\d+|total\s+marks|time\s+allowed|instructions|space\s+for\s+rough|rough\s+work|www\.|http|copyright)/i.test(l);
-  };
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line || isIgnoredLine(line)) continue;
-
-    // Check if standalone heading line specifies section
-    const foundSection = detectSectionHeader(line);
-    if (foundSection && line.length < 60 && !line.match(/^(?:Q|Question|\d+[\.\:)])/i)) {
-      currentSection = foundSection;
-      continue;
-    }
-
-    // Match question starts like "Q.1", "Question 15", "1.", "1)"
-    const qMatch = line.match(/^(?:Q(?:uestion)?\s*(\d+)[\.:\)]|(\d+)[\.:\)])\s*(.*)/i);
-    if (qMatch) {
-      const qNumStr = qMatch[1] || qMatch[2];
-      const restText = qMatch[3] || '';
-
-      // Skip lines that look like ranges e.g. "1 to 15" or "Q1 - Q15"
-      if (restText.match(/^(?:to|-)\s*\d+/i)) continue;
-
-      if (currentQ && currentQ.text && currentQ.text.trim().length > 5) {
-        const contentSec = autoDetectSection(currentQ.text);
-        if (contentSec) currentQ.section = contentSec;
-        questions.push(currentQ);
-      }
-
-      currentQ = {
-        tempId: `q_${questions.length + 1}`,
-        questionNumber: parseInt(qNumStr, 10),
-        section: foundSection || currentSection,
-        type: 'MCQ',
-        text: restText,
-        options: ['', '', '', ''],
-        correctAnswer: 'A',
-        status: 'draft'
-      };
-      continue;
-    }
-
-    if (currentQ) {
-      const optMatch = line.match(/^[\(\[\{]?([A-D])[\)\]\.\:]\s*(.*)/i);
-      if (optMatch) {
-        const optLetter = optMatch[1].toUpperCase();
-        const optVal = optMatch[2] || '';
-        const idx = optLetter.charCodeAt(0) - 65;
-        if (idx >= 0 && idx < 4) {
-          currentQ.options[idx] = optVal;
-        }
-      } else {
-        if (!currentQ.options.some(o => o && o.length > 0)) {
-          currentQ.text += ' ' + line;
-        }
-      }
-    }
-  }
-
-  if (currentQ && currentQ.text && currentQ.text.trim().length > 5) {
-    const contentSec = autoDetectSection(currentQ.text);
-    if (contentSec) currentQ.section = contentSec;
-    questions.push(currentQ);
-  }
-
-  if (questions.length === 0 && rawText.length > 0) {
-    const paragraphs = rawText.split('\n\n').filter(p => p.trim().length > 20);
-    paragraphs.forEach((p, idx) => {
-      questions.push({
-        tempId: `q_${idx + 1}`,
-        questionNumber: idx + 1,
-        section: idx % 4 === 0 ? 'Physics' : idx % 4 === 1 ? 'Chemistry' : idx % 4 === 2 ? 'Mathematics' : 'Biology',
-        type: 'MCQ',
-        text: p.trim(),
-        options: ['Option A', 'Option B', 'Option C', 'Option D'],
-        correctAnswer: 'A',
-        status: 'draft'
-      });
-    });
-  }
-
-  return questions;
-}
+import pdfParse from 'pdf-parse';
 
 export const uploadAndParsePdf = async (req, res) => {
   try {
@@ -147,114 +8,166 @@ export const uploadAndParsePdf = async (req, res) => {
     }
 
     const pdfBuffer = req.file.buffer;
-    let rawText = '';
-    let pageCount = 1;
+    const data = await pdfParse(pdfBuffer);
+    const textStr = (data && data.text) ? data.text : (typeof data === 'string' ? data : '');
 
-    if (typeof pdfModule === 'function') {
-      const parsedData = await pdfModule(pdfBuffer);
-      rawText = parsedData.text || '';
-      pageCount = parsedData.numpages || 1;
-    } else if (PDFParse) {
-      const parser = new PDFParse(new Uint8Array(pdfBuffer));
-      await parser.load();
-      rawText = (await parser.getText()) || '';
-      const info = await parser.getInfo().catch(() => ({}));
-      pageCount = info?.numpages || 1;
-    } else {
-      throw new Error('PDF parsing engine unavailable');
+    if (!textStr || textStr.trim().length === 0) {
+      return res.status(400).json({ error: 'Could not extract text from PDF' });
     }
 
-    const parsedQuestions = parsePdfTextToQuestions(rawText);
+    const cleanText = textStr.replace(/\u0000/g, '');
+    const lines = cleanText.split('\n').map(l => l.trim()).filter(Boolean);
+
+    const questions = [];
+    let currentQ = null;
+
+    const subjectClassifier = (text) => {
+      const lower = text.toLowerCase();
+      if (lower.includes('cell') || lower.includes('dna') || lower.includes('rna') || lower.includes('gene') || lower.includes('protein') || lower.includes('plant') || lower.includes('animal') || lower.includes('organism') || lower.includes('biology')) return 'Biology';
+      if (lower.includes('reaction') || lower.includes('acid') || lower.includes('base') || lower.includes('bond') || lower.includes('mole') || lower.includes('compound') || lower.includes('organic') || lower.includes('chemistry')) return 'Chemistry';
+      if (lower.includes('matrix') || lower.includes('integral') || lower.includes('derivative') || lower.includes('equation') || lower.includes('probability') || lower.includes('vector') || lower.includes('math')) return 'Mathematics';
+      if (lower.includes('force') || lower.includes('velocity') || lower.includes('mass') || lower.includes('energy') || lower.includes('electric') || lower.includes('magnetic') || lower.includes('physics')) return 'Physics';
+      return 'Physics';
+    };
+
+    lines.forEach((line) => {
+      const qMatch = line.match(/^(?:Q(?:uestion)?\s*(\d+)[\.:\)]?|\b(\d+)[\.:\)])\s*(.*)/i);
+      const optMatch = line.match(/^[(\[]?([A-D])[)\].]\s*(.*)/i);
+
+      if (qMatch) {
+        if (currentQ && currentQ.text) {
+          questions.push(currentQ);
+        }
+        const qNum = parseInt(qMatch[1] || qMatch[2], 10);
+        const restText = qMatch[3] || line;
+        currentQ = {
+          question_number: qNum || (questions.length + 1),
+          question_text: restText,
+          text: restText,
+          options: [],
+          correct_answer: 'A',
+          section: subjectClassifier(restText),
+          type: 'MCQ',
+          status: 'draft'
+        };
+      } else if (optMatch && currentQ) {
+        if (currentQ.options.length < 4) {
+          currentQ.options.push(optMatch[2] || line);
+        }
+      } else if (currentQ) {
+        if (currentQ.options.length === 0) {
+          currentQ.question_text += ' ' + line;
+          currentQ.text += ' ' + line;
+        } else {
+          const lastIdx = currentQ.options.length - 1;
+          currentQ.options[lastIdx] += ' ' + line;
+        }
+      }
+    });
+
+    if (currentQ && currentQ.text) {
+      questions.push(currentQ);
+    }
+
+    questions.forEach((q, idx) => {
+      if (!q.section) {
+        if (idx < 15) q.section = 'Physics';
+        else if (idx < 30) q.section = 'Chemistry';
+        else if (idx < 45) q.section = 'Mathematics';
+        else q.section = 'Biology';
+      }
+      while (q.options.length < 4) {
+        const optLetter = ['A', 'B', 'C', 'D'][q.options.length];
+        q.options.push(`Option ${optLetter}`);
+      }
+    });
 
     return res.status(200).json({
       success: true,
-      fileName: req.file.originalname,
-      totalPageCount: pageCount,
-      totalParsedQuestions: parsedQuestions.length,
-      questions: parsedQuestions
+      filename: req.file.originalname,
+      totalQuestions: questions.length,
+      questions
     });
-  } catch (error) {
-    console.error('PDF Parse Error:', error);
-    return res.status(500).json({ error: 'Failed to parse PDF document', details: error.message });
+
+  } catch (err) {
+    console.error('PDF parsing error:', err);
+    return res.status(500).json({ error: 'Failed to parse PDF', details: err.message });
   }
 };
 
 export const approveAndPublishPyq = async (req, res) => {
   try {
-    const { title, examType, year, questions } = req.body;
+    const { title, examType, durationMinutes, questions } = req.body;
 
-    if (!title || !questions || !Array.isArray(questions)) {
-      return res.status(400).json({ error: 'Invalid payload: title and questions array required' });
+    if (!title || !questions || !Array.isArray(questions) || questions.length === 0) {
+      return res.status(400).json({ error: 'Title and non-empty questions array are required' });
     }
 
-    const testPayload = {
-      title: title.trim(),
-      description: `Previous Year Question Paper for ${examType || 'IAT'} ${year || new Date().getFullYear()}`,
-      exam_type: (examType || 'IAT').toUpperCase(),
-      duration_minutes: 180,
-      is_active: true,
-      is_published: true
-    };
+    // 1. Insert Test Record
+    const { data: test, error: testErr } = await supabase
+      .from('tests')
+      .insert({
+        title,
+        exam_type: examType || 'IAT',
+        description: `${examType || 'IAT'} Official Question Paper Archive`,
+        duration_minutes: durationMinutes || 180,
+        is_active: true,
+        is_published: true
+      })
+      .select()
+      .single();
 
-    // 1. Insert test into `tests` table (or fallback to `test_series`)
-    let testRecord = null;
-
-    const res1 = await supabase.from('tests').insert(testPayload).select().single();
-    if (!res1.error && res1.data) {
-      testRecord = res1.data;
-    } else {
-      console.warn('tests insert warning, trying test_series fallback:', res1.error?.message);
-      const res2 = await supabase.from('test_series').insert({
-        title: title.trim(),
-        description: testPayload.description,
-        test_type: testPayload.exam_type,
-        total_questions: questions.length,
-        price: 0,
-        is_active: true
+    if (testErr || !test) {
+      const fallbackTest = await supabase.from('test_series').insert({
+        title,
+        test_type: examType || 'IAT',
+        duration_minutes: durationMinutes || 180,
+        is_published: true
       }).select().single();
-
-      if (res2.error) throw res1.error || res2.error;
-      testRecord = res2.data;
+      
+      if (!fallbackTest.data) {
+        throw testErr || new Error('Failed to create test entry');
+      }
     }
 
-    const targetTestId = testRecord.id;
+    const testId = test ? test.id : null;
 
-    // 2. Format question rows using verified Supabase table schema
-    const questionRows = questions.map((q, idx) => ({
-      test_id: targetTestId,
+    // 2. Format & Insert Questions
+    const sanitizedQuestions = questions.map((q, idx) => ({
+      test_id: testId,
       section: q.section || 'Physics',
-      question_number: q.questionNumber || (idx + 1),
-      question_text: sanitizeText(q.text || ''),
-      question_type: q.type || 'MCQ',
+      question_number: q.question_number || idx + 1,
+      question_text: q.question_text || q.text || `Question ${idx + 1}`,
       type: q.type || 'MCQ',
-      options: (Array.isArray(q.options) ? q.options : ['Option A', 'Option B', 'Option C', 'Option D']).map(opt => sanitizeText(opt || '')),
-      correct_answer: q.correctAnswer || 'A',
-      image_url: q.imageUrl || q.image_url ? sanitizeText(q.imageUrl || q.image_url) : null,
+      question_type: q.type || 'MCQ',
+      options: Array.isArray(q.options) ? q.options : ['A', 'B', 'C', 'D'],
+      correct_answer: q.correct_answer || 'A',
+      image_url: q.image_url || null,
       marks_positive: 4,
-      marks_negative: -1,
-      status: 'draft'
+      marks_negative: 1,
+      status: 'published'
     }));
 
-    // 3. Insert questions into `questions` table
-    const { data: insertedQuestions, error: qErr } = await supabase
+    const { data: insertedQs, error: qErr } = await supabase
       .from('questions')
-      .insert(questionRows)
+      .insert(sanitizedQuestions)
       .select();
 
     if (qErr) {
-      console.error('Questions batch insert error:', qErr);
+      console.error('Questions insert error:', qErr);
       throw qErr;
     }
 
     return res.status(200).json({
       success: true,
-      message: 'PYQ successfully published to main website & exam portal!',
-      testId: targetTestId,
-      questionsCount: insertedQuestions.length
+      message: 'Test paper published successfully',
+      testId: testId,
+      insertedCount: insertedQs.length
     });
-  } catch (error) {
-    console.error('Publish PYQ Error:', error);
-    return res.status(500).json({ error: 'Failed to publish PYQ', details: error.message || error });
+
+  } catch (err) {
+    console.error('Publishing error:', err);
+    return res.status(500).json({ error: 'Failed to publish PYQ', details: err.message });
   }
 };
 
@@ -265,16 +178,14 @@ export const getPyqList = async (req, res) => {
       .select('*')
       .order('created_at', { ascending: false });
 
-    if (error) {
+    if (error || !data || data.length === 0) {
       const fallback = await supabase.from('test_series').select('*').order('created_at', { ascending: false });
       data = fallback.data;
-      error = fallback.error;
     }
 
-    if (error) throw error;
     return res.status(200).json({ success: true, tests: data || [] });
-  } catch (error) {
-    return res.status(500).json({ error: 'Failed to fetch PYQs', details: error.message });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to fetch PYQ list', details: err.message });
   }
 };
 
@@ -287,44 +198,35 @@ export const getTestQuestions = async (req, res) => {
       .or(`test_id.eq.${testId},test_series_id.eq.${testId}`)
       .order('question_number', { ascending: true });
 
-    if (error) {
-      const fallback = await supabase.from('questions').select('*').eq('test_id', testId).order('question_number', { ascending: true });
-      if (fallback.error) throw error;
-      return res.status(200).json({ success: true, questions: fallback.data || [] });
-    }
+    if (error) throw error;
     return res.status(200).json({ success: true, questions: data || [] });
-  } catch (error) {
-    return res.status(500).json({ error: 'Failed to fetch questions', details: error.message });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to fetch test questions', details: err.message });
   }
 };
 
 export const updateQuestion = async (req, res) => {
   try {
     const { id } = req.params;
-    const { question_text, section, options, correct_answer, image_url, question_type, type } = req.body;
-
-    const updatePayload = {};
-    if (question_text !== undefined) updatePayload.question_text = sanitizeText(question_text);
-    if (section !== undefined) updatePayload.section = section;
-    if (options !== undefined && Array.isArray(options)) updatePayload.options = options.map(opt => sanitizeText(opt || ''));
-    if (correct_answer !== undefined) updatePayload.correct_answer = correct_answer;
-    if (image_url !== undefined) updatePayload.image_url = image_url ? sanitizeText(image_url) : null;
-    if (question_type !== undefined || type !== undefined) {
-      updatePayload.question_type = question_type || type;
-      updatePayload.type = question_type || type;
-    }
+    const updates = req.body;
 
     const { data, error } = await supabase
       .from('questions')
-      .update(updatePayload)
+      .update({
+        question_text: updates.question_text || updates.text,
+        options: updates.options,
+        correct_answer: updates.correct_answer,
+        section: updates.section,
+        image_url: updates.image_url || null
+      })
       .eq('id', id)
       .select()
       .single();
 
     if (error) throw error;
     return res.status(200).json({ success: true, question: data });
-  } catch (error) {
-    return res.status(500).json({ error: 'Failed to update question', details: error.message });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to update question', details: err.message });
   }
 };
 
@@ -333,8 +235,59 @@ export const deleteQuestion = async (req, res) => {
     const { id } = req.params;
     const { error } = await supabase.from('questions').delete().eq('id', id);
     if (error) throw error;
-    return res.status(200).json({ success: true, message: 'Question deleted successfully' });
-  } catch (error) {
-    return res.status(500).json({ error: 'Failed to delete question', details: error.message });
+    return res.status(200).json({ success: true, message: 'Question deleted' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to delete question', details: err.message });
+  }
+};
+
+export const updateTest = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, examType, durationMinutes, description } = req.body;
+
+    const { data, error } = await supabase
+      .from('tests')
+      .update({
+        title,
+        exam_type: examType || 'IAT',
+        duration_minutes: durationMinutes || 180,
+        description
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    // Also update test_series fallback table if present
+    await supabase
+      .from('test_series')
+      .update({
+        title,
+        test_type: examType || 'IAT',
+        duration_minutes: durationMinutes || 180
+      })
+      .eq('id', id);
+
+    if (error) throw error;
+    return res.status(200).json({ success: true, test: data });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to update test paper', details: err.message });
+  }
+};
+
+export const deleteTest = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // 1. Delete questions first
+    await supabase.from('questions').delete().or(`test_id.eq.${id},test_series_id.eq.${id}`);
+
+    // 2. Delete test record from 'tests' and 'test_series'
+    const res1 = await supabase.from('tests').delete().eq('id', id);
+    const res2 = await supabase.from('test_series').delete().eq('id', id);
+
+    return res.status(200).json({ success: true, message: 'Test paper and all questions deleted successfully' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to delete test paper', details: err.message });
   }
 };

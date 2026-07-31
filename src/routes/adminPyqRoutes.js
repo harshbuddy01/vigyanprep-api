@@ -6,7 +6,9 @@ import {
   getPyqList,
   getTestQuestions,
   updateQuestion,
-  deleteQuestion
+  deleteQuestion,
+  updateTest,
+  deleteTest
 } from '../controllers/adminPyqController.js';
 
 const router = express.Router();
@@ -18,5 +20,7 @@ router.get('/list', getPyqList);
 router.get('/test/:testId/questions', getTestQuestions);
 router.put('/question/:id', updateQuestion);
 router.delete('/question/:id', deleteQuestion);
+router.put('/test/:id', updateTest);
+router.delete('/test/:id', deleteTest);
 
 export default router;
