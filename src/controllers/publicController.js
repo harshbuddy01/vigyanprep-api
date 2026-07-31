@@ -2,17 +2,18 @@ import { supabase } from '../db/supabase.js';
 
 export const getPublicTests = async (req, res) => {
   try {
-    let { data, error } = await supabase
-      .from('tests')
-      .select('*')
-      .order('created_at', { ascending: false });
+    const { data: testsData } = await supabase.from('tests').select('*').order('created_at', { ascending: false });
+    const { data: seriesData } = await supabase.from('test_series').select('*').order('created_at', { ascending: false });
 
-    if (error || !data || data.length === 0) {
-      const fallback = await supabase.from('test_series').select('*').order('created_at', { ascending: false });
-      data = fallback.data;
-    }
+    const combinedMap = new Map();
+    [...(testsData || []), ...(seriesData || [])].forEach(item => {
+      if (item && item.id && !combinedMap.has(item.id)) {
+        combinedMap.set(item.id, item);
+      }
+    });
 
-    return res.status(200).json({ success: true, tests: data || [], pyqs: data || [] });
+    const combined = Array.from(combinedMap.values());
+    return res.status(200).json({ success: true, tests: combined, pyqs: combined });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to fetch tests', details: err.message });
   }
@@ -20,17 +21,18 @@ export const getPublicTests = async (req, res) => {
 
 export const getPublicPyqs = async (req, res) => {
   try {
-    let { data, error } = await supabase
-      .from('tests')
-      .select('*')
-      .order('created_at', { ascending: false });
+    const { data: testsData } = await supabase.from('tests').select('*').order('created_at', { ascending: false });
+    const { data: seriesData } = await supabase.from('test_series').select('*').order('created_at', { ascending: false });
 
-    if (error || !data || data.length === 0) {
-      const fallback = await supabase.from('test_series').select('*').order('created_at', { ascending: false });
-      data = fallback.data;
-    }
+    const combinedMap = new Map();
+    [...(testsData || []), ...(seriesData || [])].forEach(item => {
+      if (item && item.id && !combinedMap.has(item.id)) {
+        combinedMap.set(item.id, item);
+      }
+    });
 
-    return res.status(200).json({ success: true, tests: data || [], pyqs: data || [] });
+    const combined = Array.from(combinedMap.values());
+    return res.status(200).json({ success: true, tests: combined, pyqs: combined });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to fetch PYQs', details: err.message });
   }

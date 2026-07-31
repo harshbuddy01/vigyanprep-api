@@ -147,7 +147,7 @@ export const approveAndPublishPyq = async (req, res) => {
       image_url: q.image_url || null,
       marks_positive: 4,
       marks_negative: 1,
-      status: 'draft'
+      status: 'active'
     }));
 
     const { data: insertedQs, error: qErr } = await supabase
@@ -175,17 +175,28 @@ export const approveAndPublishPyq = async (req, res) => {
 
 export const getPyqList = async (req, res) => {
   try {
-    let { data, error } = await supabase
+    const { data: testsData } = await supabase
       .from('tests')
       .select('*')
       .order('created_at', { ascending: false });
 
-    if (error || !data || data.length === 0) {
-      const fallback = await supabase.from('test_series').select('*').order('created_at', { ascending: false });
-      data = fallback.data;
-    }
+    const { data: seriesData } = await supabase
+      .from('test_series')
+      .select('*')
+      .order('created_at', { ascending: false });
 
-    return res.status(200).json({ success: true, tests: data || [] });
+    const combined = [...(testsData || []), ...(seriesData || [])];
+    // Deduplicate by title or id if any overlap
+    const uniqueMap = new Map();
+    combined.forEach(t => {
+      if (t && t.id && !uniqueMap.has(t.id)) {
+        uniqueMap.set(t.id, t);
+      }
+    });
+
+    const allTests = Array.from(uniqueMap.values());
+
+    return res.status(200).json({ success: true, tests: allTests });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to fetch PYQ list', details: err.message });
   }
