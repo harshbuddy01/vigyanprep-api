@@ -404,15 +404,43 @@ export const getPyqList = async (req, res) => {
 export const getTestQuestions = async (req, res) => {
   try {
     const { testId } = req.params;
-    const { data, error } = await supabase
+    console.log(`📋 Fetching questions for test: ${testId}`);
+
+    // Primary query: just use test_id (this always exists)
+    let { data, error } = await supabase
       .from('questions')
       .select('*')
-      .or(`test_id.eq.${testId},test_series_id.eq.${testId}`)
+      .eq('test_id', testId)
       .order('question_number', { ascending: true });
 
-    if (error) throw error;
+    if (error) {
+      console.error('Questions fetch error (test_id):', error);
+      throw error;
+    }
+
+    // If no results, try test_series_id as fallback
+    if (!data || data.length === 0) {
+      console.log('  No questions found by test_id, trying test_series_id...');
+      try {
+        const fallback = await supabase
+          .from('questions')
+          .select('*')
+          .eq('test_series_id', testId)
+          .order('question_number', { ascending: true });
+
+        if (fallback.data && fallback.data.length > 0) {
+          data = fallback.data;
+        }
+      } catch (fallbackErr) {
+        // test_series_id column may not exist — ignore silently
+        console.warn('  test_series_id fallback failed (column may not exist):', fallbackErr.message);
+      }
+    }
+
+    console.log(`  ✅ Returning ${(data || []).length} questions`);
     return res.status(200).json({ success: true, questions: data || [] });
   } catch (err) {
+    console.error('getTestQuestions error:', err);
     return res.status(500).json({ error: 'Failed to fetch test questions', details: err.message });
   }
 };
