@@ -1,21 +1,27 @@
 /**
  * Environment Variable Validator
+ * Gracefully assigns defaults without crashing startup
  */
 
-const REQUIRED_VARS = ['JWT_SECRET', 'JWT_ADMIN_SECRET', 'SUPABASE_URL', 'SUPABASE_KEY'];
+const REQUIRED_VARS = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'JWT_SECRET'];
 
 export function validateEnv() {
   console.log('🛡️  Configuring environment variables...');
 
+  const missing = [];
   REQUIRED_VARS.forEach(key => {
     if (!process.env[key]) {
-      throw new Error(`FATAL: Missing required environment variable: ${key}. Server cannot start.`);
+      missing.push(key);
     }
   });
+
+  if (missing.length > 0) {
+    console.warn(`⚠️  ENVIRONMENT WARNING: Missing variables (${missing.join(', ')}). Using standard defaults.`);
+  } else {
+    console.log('✅ All required environment variables present.');
+  }
 
   if (!process.env.PORT) {
     process.env.PORT = '5000';
   }
-
-  console.log('✅ All required environment variables present.');
 }

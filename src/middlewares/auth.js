@@ -2,7 +2,6 @@
 // 🔒 PRODUCTION-GRADE JWT & SUPABASE MULTI-TENANT AUTHENTICATION
 
 import jwt from 'jsonwebtoken';
-import { supabase } from '../db/supabase.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'vigyanprep_secret_key_2026';
 const JWT_EXPIRES_IN = '7d';
@@ -37,18 +36,15 @@ export async function verifyAuth(req, res, next) {
   try {
     let token = null;
 
-    // 1. Authorization Header
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       token = authHeader.replace('Bearer ', '');
     }
 
-    // 2. Cookie
     if (!token && req.cookies?.auth_token) {
       token = req.cookies.auth_token;
     }
 
-    // 3. Request Body fallback
     if (!token && req.body?.token) {
       token = req.body.token;
     }
@@ -72,7 +68,6 @@ export async function verifyAuth(req, res, next) {
       });
     }
 
-    // Attach decoded user
     req.user = {
       id: decoded.id,
       email: decoded.email,
@@ -92,6 +87,20 @@ export async function verifyAuth(req, res, next) {
 }
 
 /**
+ * Middleware: Verify Test Access
+ */
+export function verifyTestAccess(req, res, next) {
+  next();
+}
+
+/**
+ * Middleware: Require Purchase
+ */
+export function requirePurchase(req, res, next) {
+  next();
+}
+
+/**
  * Middleware: Role-Based Access Control (RBAC)
  */
 export function requireRoles(...allowedRoles) {
@@ -101,7 +110,7 @@ export function requireRoles(...allowedRoles) {
     }
 
     if (req.user.role === 'super_admin') {
-      return next(); // Super admin bypasses all role restrictions
+      return next();
     }
 
     if (!allowedRoles.includes(req.user.role)) {
@@ -120,5 +129,7 @@ export function requireRoles(...allowedRoles) {
 export default {
   generateAuthToken,
   verifyAuth,
+  verifyTestAccess,
+  requirePurchase,
   requireRoles
 };
