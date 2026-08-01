@@ -7,18 +7,26 @@ router.use(verifyAdminAuth);
 
 router.get('/', async (req, res) => {
   try {
-    const [usersRes, studentsRes, authUsersRes] = await Promise.all([
-      supabase.from('users').select('*'),
-      supabase.from('students').select('*'),
-      supabase.auth.admin.listUsers().catch(() => ({ data: { users: [] } }))
+    const fetchUsers = supabase.from('users').select('*').then(r => r.data || []).catch(() => []);
+    const fetchStudents = supabase.from('students').select('*').then(r => r.data || []).catch(() => []);
+    
+    let fetchAuth = Promise.resolve([]);
+    if (supabase.auth && supabase.auth.admin && typeof supabase.auth.admin.listUsers === 'function') {
+      fetchAuth = supabase.auth.admin.listUsers()
+        .then(r => r.data?.users || [])
+        .catch(() => []);
+    }
+
+    const [usersList, studentsList, authList] = await Promise.all([
+      fetchUsers,
+      fetchStudents,
+      fetchAuth
     ]);
 
-    let combinedList: any[] = [];
-    if (usersRes.data) combinedList.push(...usersRes.data);
-    if (studentsRes.data) combinedList.push(...studentsRes.data);
+    let combinedList: any[] = [...usersList, ...studentsList];
 
-    if (authUsersRes?.data?.users) {
-      const mappedAuth = authUsersRes.data.users.map((u: any) => ({
+    if (authList.length > 0) {
+      const mappedAuth = authList.map((u: any) => ({
         id: u.id,
         email: u.email,
         full_name: u.user_metadata?.full_name || u.user_metadata?.name || (u.email ? u.email.split('@')[0] : 'Student'),
