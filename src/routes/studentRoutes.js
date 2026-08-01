@@ -23,10 +23,10 @@ router.get('/', async (req, res) => {
       fetchAuth
     ]);
 
-    let combinedList: any[] = [...usersList, ...studentsList];
+    let combinedList = [...usersList, ...studentsList];
 
     if (authList.length > 0) {
-      const mappedAuth = authList.map((u: any) => ({
+      const mappedAuth = authList.map(u => ({
         id: u.id,
         email: u.email,
         full_name: u.user_metadata?.full_name || u.user_metadata?.name || (u.email ? u.email.split('@')[0] : 'Student'),
