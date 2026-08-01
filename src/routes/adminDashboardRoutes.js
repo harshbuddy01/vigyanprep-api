@@ -7,15 +7,41 @@ router.use(verifyAdminAuth);
 
 router.get('/stats', async (req, res) => {
   try {
-    // 1. Fetch real student count from database
-    const { count: studentCount } = await supabase
-      .from('users')
-      .select('*', { count: 'exact', head: true });
+    // 1. Fetch real student count across users table, students table, and Supabase Auth admin API
+    const [usersRes, studentsRes, authUsersRes] = await Promise.all([
+      supabase.from('users').select('*'),
+      supabase.from('students').select('*'),
+      supabase.auth.admin.listUsers().catch(() => ({ data: { users: [] } }))
+    ]);
 
-    // 2. Fetch real active tests count from database
+    let combinedStudents: any[] = [];
+    if (usersRes.data) combinedStudents.push(...usersRes.data);
+    if (studentsRes.data) combinedStudents.push(...studentsRes.data);
+
+    if (authUsersRes?.data?.users) {
+      const mappedAuth = authUsersRes.data.users.map((u: any) => ({
+        id: u.id,
+        email: u.email,
+        full_name: u.user_metadata?.full_name || u.user_metadata?.name || (u.email ? u.email.split('@')[0] : 'Student'),
+        role: u.user_metadata?.role || 'student',
+        created_at: u.created_at
+      }));
+      combinedStudents.push(...mappedAuth);
+    }
+
+    const uniqueStudents = Array.from(
+      new Map(
+        combinedStudents
+          .filter(s => s.email && s.role !== 'super_admin')
+          .map(s => [s.email.toLowerCase(), s])
+      ).values()
+    );
+
+    // 2. Fetch real active PAID test series count (EXCLUDING free PYQ papers)
     const { count: testCount } = await supabase
       .from('tests')
-      .select('*', { count: 'exact', head: true });
+      .select('*', { count: 'exact', head: true })
+      .eq('content_type', 'test_series');
 
     // 3. Fetch real attempt count from database
     const { count: attemptCount } = await supabase
@@ -32,10 +58,10 @@ router.get('/stats', async (req, res) => {
     return res.status(200).json({
       success: true,
       stats: {
-        totalStudents: studentCount || 0,
+        totalStudents: uniqueStudents.length,
         activeTests: testCount || 0,
         totalAttempts: attemptCount || 0,
-        activeUsers: studentCount || 0,
+        activeUsers: uniqueStudents.length,
         revenue: totalRevenue,
         revenueTrend: [
           { name: 'Mon', revenue: 0 },

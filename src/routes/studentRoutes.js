@@ -7,14 +7,28 @@ router.use(verifyAdminAuth);
 
 router.get('/', async (req, res) => {
   try {
-    const [usersRes, studentsRes] = await Promise.all([
+    const [usersRes, studentsRes, authUsersRes] = await Promise.all([
       supabase.from('users').select('*'),
-      supabase.from('students').select('*')
+      supabase.from('students').select('*'),
+      supabase.auth.admin.listUsers().catch(() => ({ data: { users: [] } }))
     ]);
 
     let combinedList: any[] = [];
     if (usersRes.data) combinedList.push(...usersRes.data);
     if (studentsRes.data) combinedList.push(...studentsRes.data);
+
+    if (authUsersRes?.data?.users) {
+      const mappedAuth = authUsersRes.data.users.map((u: any) => ({
+        id: u.id,
+        email: u.email,
+        full_name: u.user_metadata?.full_name || u.user_metadata?.name || (u.email ? u.email.split('@')[0] : 'Student'),
+        name: u.user_metadata?.full_name || u.user_metadata?.name || (u.email ? u.email.split('@')[0] : 'Student'),
+        role: u.user_metadata?.role || 'student',
+        status: 'Active',
+        created_at: u.created_at
+      }));
+      combinedList.push(...mappedAuth);
+    }
 
     // Normalize student profile structure
     const normalized = combinedList.map(s => ({
