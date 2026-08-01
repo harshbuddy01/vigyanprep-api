@@ -1,25 +1,26 @@
 import Razorpay from 'razorpay';
 
+const keyId = process.env.RAZORPAY_KEY_ID || process.env.RAZORPAY_API_KEY || '';
+const keySecret = process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_API_SECRET || '';
+
 console.log('🔵 Razorpay Configuration Loading...');
-console.log('  RAZORPAY_API_KEY:', process.env.RAZORPAY_API_KEY ? '✅ SET' : '❌ NOT SET');
-console.log('  RAZORPAY_API_SECRET:', process.env.RAZORPAY_API_SECRET ? '✅ SET' : '❌ NOT SET');
+console.log('  RAZORPAY_KEY_ID / API_KEY:', keyId ? '✅ SET' : '❌ NOT SET');
+console.log('  RAZORPAY_KEY_SECRET / API_SECRET:', keySecret ? '✅ SET' : '❌ NOT SET');
 
 let instance = null;
 
 try {
-  if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
+  if (keyId && keySecret) {
     instance = new Razorpay({
-      key_id: process.env.RAZORPAY_KEY_ID,
-      key_secret: process.env.RAZORPAY_KEY_SECRET,
+      key_id: keyId,
+      key_secret: keySecret,
     });
     console.log('✅ Razorpay initialized successfully');
   } else {
-    console.warn('⚠️ Razorpay not initialized - Missing API credentials');
-    console.warn('   Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET environment variables');
+    console.warn('⚠️ Razorpay credentials missing in environment');
   }
 } catch (error) {
   console.error('❌ Razorpay initialization error:', error.message);
-  console.warn('⚠️ Razorpay disabled - payment functionality may not work');
   instance = null;
 }
 
