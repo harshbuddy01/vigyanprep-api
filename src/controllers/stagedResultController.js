@@ -1,5 +1,5 @@
 // backend/controllers/stagedResultController.js
-// 🏆 STAGED RESULT RELEASE & RANK CALCULATION ENGINE
+// 🏆 STAGED RESULT RELEASE & TWO-TIER RANKING ENGINE
 
 import { supabase } from '../db/supabase.js';
 
@@ -9,9 +9,7 @@ import { supabase } from '../db/supabase.js';
 export const getStudentResult = async (req, res) => {
   try {
     const { attemptId } = req.params;
-    const studentId = req.user?.id;
 
-    // 1. Fetch Attempt
     const { data: attempt, error: attemptErr } = await supabase
       .from('attempts')
       .select('*')
@@ -22,27 +20,24 @@ export const getStudentResult = async (req, res) => {
       return res.status(404).json({ error: 'Attempt not found' });
     }
 
-    // 2. Fetch Result record
     const { data: result } = await supabase
       .from('results')
       .select('*')
       .eq('attempt_id', attemptId)
       .maybeSingle();
 
-    // 3. Fetch Attempt Answers
     const { data: answers } = await supabase
       .from('attempt_answers')
       .select('*')
       .eq('attempt_id', attemptId);
 
     const stages = result?.published_stages || {
-      stage_1_response_sheet: true, // Default: response sheet visible immediately
+      stage_1_response_sheet: true,
       stage_2_answer_key: false,
       stage_3_marks: false,
       stage_4_rank_list: false
     };
 
-    // If Stage 2 (Answer Key) is NOT released, strip correct answers from return
     let questionsWithKey = [];
     if (stages.stage_2_answer_key) {
       const { data: qData } = await supabase
@@ -61,7 +56,6 @@ export const getStudentResult = async (req, res) => {
       questionsWithKey: stages.stage_2_answer_key ? questionsWithKey : []
     });
   } catch (err) {
-    console.error('getStudentResult error:', err);
     return res.status(500).json({ error: 'Failed to fetch result', details: err.message });
   }
 };
@@ -81,7 +75,6 @@ export const updateResultStages = async (req, res) => {
       stage_4_rank_list: Boolean(stage4RankList)
     };
 
-    // Update all results for this test
     const { data, error } = await supabase
       .from('results')
       .update({ published_stages: stages })
@@ -102,22 +95,23 @@ export const updateResultStages = async (req, res) => {
 };
 
 /**
- * Admin / System: Calculate Scores and Ranks for a Test Paper
+ * Admin / System: Calculate Scores and Ranks (Two-Tier & Absent Exclusion)
  */
 export const calculateTestRanks = async (req, res) => {
   try {
     const { testId } = req.params;
 
-    // 1. Fetch all submitted attempts for this test
+    // 1. Fetch only SUBMITTED LIVE attempts (Excludes absent & practice attempts)
     const { data: attempts, error: attErr } = await supabase
       .from('attempts')
       .select('*')
       .eq('test_id', testId)
-      .eq('status', 'submitted');
+      .eq('status', 'submitted')
+      .eq('attempt_type', 'live')
+      .is('is_absent', false); // 🛡️ ABSENT EXCLUSION: Exclude absent students from ranking denominator
 
     if (attErr) throw attErr;
 
-    // 2. Fetch all questions & answer keys
     const { data: questions } = await supabase
       .from('questions')
       .select('id, section, correct_answer, marks_positive, marks_negative')
@@ -166,18 +160,19 @@ export const calculateTestRanks = async (req, res) => {
       });
     }
 
-    // Sort by raw_score descending for Overall Rank
+    // Sort descending by raw score for Live Merit List
     scoredAttempts.sort((a, b) => b.raw_score - a.raw_score);
 
-    const totalStudents = scoredAttempts.length;
+    // Denominator = total live submitted attempts only (Absent students excluded!)
+    const liveDenominator = scoredAttempts.length;
 
-    // Calculate overall rank & percentile, then save to results table
-    for (let i = 0; i < totalStudents; i++) {
+    for (let i = 0; i < liveDenominator; i++) {
       const item = scoredAttempts[i];
       const rankOverall = i + 1;
-      const percentile = totalStudents > 1 ? Number(((totalStudents - rankOverall) / (totalStudents - 1) * 100).toFixed(2)) : 100;
+      const percentile = liveDenominator > 1
+        ? Number(((liveDenominator - rankOverall) / (liveDenominator - 1) * 100).toFixed(2))
+        : 100;
 
-      // Upsert into results
       await supabase.from('results').upsert({
         attempt_id: item.attempt_id,
         org_id: item.org_id,
@@ -187,17 +182,17 @@ export const calculateTestRanks = async (req, res) => {
         section_scores: item.section_scores,
         percentage: Number(((item.raw_score / Math.max(1, questionMap.size * 4)) * 100).toFixed(2)),
         rank_overall: rankOverall,
-        percentile: percentile
+        percentile: percentile,
+        attempt_type: 'live'
       }, { onConflict: 'attempt_id' });
     }
 
     return res.status(200).json({
       success: true,
-      message: `Calculated ranks for ${totalStudents} students`,
-      totalStudents
+      message: `Calculated ranks for ${liveDenominator} live test takers. Absent students excluded from denominator.`,
+      liveDenominator
     });
   } catch (err) {
-    console.error('calculateTestRanks error:', err);
     return res.status(500).json({ error: 'Failed to calculate test ranks', details: err.message });
   }
 };

@@ -1,12 +1,13 @@
 {
   "name": "vigyanprep-api",
-  "version": "1.0.0",
+  "version": "2.1.0",
   "type": "module",
-  "description": "Vigyanprep API Backend",
-  "main": "src/index.js",
+  "description": "Vigyan.prep Multi-Tenant API Engine",
+  "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "nodemon src/server.js"
+    "dev": "nodemon src/server.js",
+    "test": "vitest run"
   },
   "dependencies": {
     "@google/generative-ai": "^0.3.0",
@@ -20,7 +21,6 @@
     "express-validator": "^7.0.1",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.1.1",
     "multer": "^1.4.5-lts.1",
     "nodemailer": "^6.9.9",
     "pdf-parse": "^2.4.5",
@@ -29,6 +29,7 @@
     "ws": "^8.21.1"
   },
   "devDependencies": {
-    "nodemon": "^3.0.3"
+    "nodemon": "^3.0.3",
+    "vitest": "^1.2.2"
   }
 }
