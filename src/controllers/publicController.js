@@ -32,6 +32,21 @@ export const getPublicTests = async (req, res) => {
   }
 };
 
+export const getPublicPlans = async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('plans')
+      .select('*')
+      .eq('active', true)
+      .order('price', { ascending: true });
+
+    if (error) throw error;
+    return res.status(200).json({ success: true, plans: data || [] });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to fetch plans', details: err.message });
+  }
+};
+
 export const getPublicTestDetails = async (req, res) => {
   try {
     const { id } = req.params;
