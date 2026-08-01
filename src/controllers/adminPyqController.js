@@ -340,6 +340,7 @@ export const approveAndPublishPyq = async (req, res) => {
       question_number: q.questionNumber || q.question_number || idx + 1,
       question_text: q.question_text || q.text || `Question ${idx + 1}`,
       type: q.type || 'MCQ',
+      question_type: q.type || 'MCQ',
       options: Array.isArray(q.options) && q.options.length === 4
         ? q.options
         : ['Option A', 'Option B', 'Option C', 'Option D'],
