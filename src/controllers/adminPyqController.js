@@ -209,7 +209,7 @@ export const uploadAndParsePdf = async (req, res) => {
 };
 
 /**
- * Approve & Publish PYQ Paper (Spec §2.2: Set content_type = 'pyq', is_published = true, no test_series fallback)
+ * Approve & Publish PYQ Paper
  */
 export const approveAndPublishPyq = async (req, res) => {
   try {
@@ -219,6 +219,9 @@ export const approveAndPublishPyq = async (req, res) => {
       return res.status(400).json({ error: 'Title and non-empty questions array are required' });
     }
 
+    // Extract year from title if year not explicitly passed
+    const parsedYear = parseInt(year) || (title.match(/\d{4}/) ? parseInt(title.match(/\d{4}/)[0]) : new Date().getFullYear());
+
     // 1. Insert PYQ into 'tests' table strictly with content_type = 'pyq'
     const { data: test, error: testErr } = await supabase
       .from('tests')
@@ -226,7 +229,7 @@ export const approveAndPublishPyq = async (req, res) => {
         title,
         exam_type: examType || 'IAT',
         content_type: 'pyq',
-        pyq_year: parseInt(year) || new Date().getFullYear(),
+        pyq_year: parsedYear,
         description: `${title} — Official PYQ Paper`,
         duration_minutes: durationMinutes || 180,
         is_active: true,
@@ -278,18 +281,21 @@ export const approveAndPublishPyq = async (req, res) => {
 };
 
 /**
- * Get PYQ List (Spec §2.2: Filter content_type = 'pyq' and return { success: true, papers: data })
+ * Get PYQ List (Fetches all papers marked content_type = 'pyq' or content_type IS NULL, excluding test_series)
  */
 export const getPyqList = async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('tests')
       .select('*')
-      .eq('content_type', 'pyq')
       .order('created_at', { ascending: false });
 
     if (error) throw error;
-    return res.status(200).json({ success: true, papers: data || [] });
+
+    // Filter out any explicitly designated test series papers (where content_type === 'test_series')
+    const pyqPapers = (data || []).filter(t => t.content_type !== 'test_series');
+
+    return res.status(200).json({ success: true, papers: pyqPapers });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to fetch PYQ list', details: err.message });
   }
