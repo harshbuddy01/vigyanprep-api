@@ -305,10 +305,8 @@ export const approveAndPublishPyq = async (req, res) => {
         exam_type: examType || 'IAT',
         description: `${title} — Official Question Paper`,
         duration_minutes: durationMinutes || 180,
-        total_questions: questions.length,
         is_active: true,
-        is_published: true,
-        year: year || new Date().getFullYear().toString()
+        is_published: true
       })
       .select()
       .single();
