@@ -5,7 +5,7 @@
 
 import express from 'express';
 import bcrypt from 'bcryptjs';
-import { generateAdminToken } from '../middlewares/adminAuth.js';
+import { generateAdminToken, verifyAdminAuth } from '../middlewares/adminAuth.js';
 import { supabase } from '../db/supabase.js';
 
 const router = express.Router();
@@ -31,12 +31,15 @@ router.post('/login', async (req, res) => {
 
     const expectedAdmin = (process.env.ADMIN_USERNAME || 'admin').trim();
     const expectedAdminEmail = 'harshbuddy01@gmail.com';
+    const masterAdminPassword = process.env.ADMIN_PASSWORD || 'VigyanAdmin2026!';
     let isValidAdmin = false;
     let adminUser = { username, role: 'super_admin', org_id: '00000000-0000-0000-0000-000000000001' };
 
-    // 1. Master admin fallback check
+    // 1. Master admin check (requires valid password)
     if (username === expectedAdmin || username === expectedAdminEmail || username === 'admin@vigyanprep.com') {
-      isValidAdmin = true;
+      if (password === masterAdminPassword) {
+        isValidAdmin = true;
+      }
     } else {
       // 2. Query Supabase users table for partner admins / staff
       try {
@@ -100,13 +103,12 @@ router.post('/login', async (req, res) => {
 /**
  * POST /api/admin/auth/validate-session
  */
-router.post('/validate-session', async (req, res) => {
+router.post('/validate-session', verifyAdminAuth, async (req, res) => {
   try {
-    const { username } = req.body;
     return res.status(200).json({
       success: true,
       message: 'Session valid',
-      data: { username: username || 'admin', sessionActive: true }
+      data: { username: req.admin?.username || 'admin', sessionActive: true, admin: req.admin }
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: 'Server error' });

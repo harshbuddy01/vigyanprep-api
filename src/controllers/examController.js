@@ -153,6 +153,7 @@ export const submitExam = async (req, res) => {
       .from('attempts')
       .update({
         status: 'submitted',
+        answers: answers || {},
         submitted_at: new Date().toISOString(),
         submit_reason: 'manual'
       })
