@@ -7,29 +7,44 @@ router.use(verifyAdminAuth);
 
 router.get('/stats', async (req, res) => {
   try {
-    const { count: totalStudents } = await supabase.from('users').select('*', { count: 'exact', head: true });
-    const { count: activeTests } = await supabase.from('tests').select('*', { count: 'exact', head: true });
-    const { count: totalAttempts } = await supabase.from('attempts').select('*', { count: 'exact', head: true });
-    const { data: payments } = await supabase.from('payments').select('amount');
+    // 1. Fetch real student count from database
+    const { count: studentCount } = await supabase
+      .from('users')
+      .select('*', { count: 'exact', head: true });
 
-    const revenue = (payments || []).reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+    // 2. Fetch real active tests count from database
+    const { count: testCount } = await supabase
+      .from('tests')
+      .select('*', { count: 'exact', head: true });
+
+    // 3. Fetch real attempt count from database
+    const { count: attemptCount } = await supabase
+      .from('attempts')
+      .select('*', { count: 'exact', head: true });
+
+    // 4. Fetch real payments from database
+    const { data: payments } = await supabase
+      .from('payments')
+      .select('amount, created_at, verified_at');
+
+    const totalRevenue = (payments || []).reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
 
     return res.status(200).json({
       success: true,
       stats: {
-        totalStudents: totalStudents || 14,
-        activeTests: activeTests || 6,
-        totalAttempts: totalAttempts || 42,
-        activeUsers: totalStudents || 14,
-        revenue: revenue || 2997,
+        totalStudents: studentCount || 0,
+        activeTests: testCount || 0,
+        totalAttempts: attemptCount || 0,
+        activeUsers: studentCount || 0,
+        revenue: totalRevenue,
         revenueTrend: [
           { name: 'Mon', revenue: 0 },
-          { name: 'Tue', revenue: 999 },
-          { name: 'Wed', revenue: 1998 },
-          { name: 'Thu', revenue: 2997 },
-          { name: 'Fri', revenue: 3996 },
-          { name: 'Sat', revenue: 4995 },
-          { name: 'Sun', revenue: revenue || 5994 }
+          { name: 'Tue', revenue: 0 },
+          { name: 'Wed', revenue: 0 },
+          { name: 'Thu', revenue: 0 },
+          { name: 'Fri', revenue: 0 },
+          { name: 'Sat', revenue: 0 },
+          { name: 'Sun', revenue: totalRevenue }
         ]
       }
     });
