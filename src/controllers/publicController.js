@@ -5,12 +5,11 @@ export const getPublicPyqs = async (req, res) => {
     const { data, error } = await supabase
       .from('tests')
       .select('*')
-      .eq('content_type', 'pyq')
-      .eq('is_published', true)
-      .order('pyq_year', { ascending: false });
+      .order('created_at', { ascending: false });
 
     if (error) throw error;
-    return res.status(200).json({ success: true, papers: data || [] });
+    const pyqPapers = (data || []).filter(t => t.content_type !== 'test_series');
+    return res.status(200).json({ success: true, papers: pyqPapers });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to fetch PYQs', details: err.message });
   }
