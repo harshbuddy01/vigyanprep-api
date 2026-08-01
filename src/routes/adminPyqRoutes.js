@@ -1,5 +1,6 @@
 import express from 'express';
 import multer from 'multer';
+import { verifyAdminAuth } from '../middlewares/adminAuth.js';
 import {
   uploadAndParsePdf,
   approveAndPublishPyq,
@@ -12,6 +13,8 @@ import {
 } from '../controllers/adminPyqController.js';
 
 const router = express.Router();
+router.use(verifyAdminAuth); // 🔒 Protect all PYQ admin endpoints
+
 const upload = multer({ limits: { fileSize: 20 * 1024 * 1024 } }); // 20MB max
 
 router.post('/upload-pdf', upload.single('file'), uploadAndParsePdf);

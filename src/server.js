@@ -17,6 +17,7 @@ import adminAuthRoutes from './routes/adminAuthRoutes.js';
 import adminDashboardRoutes from './routes/adminDashboardRoutes.js';
 import adminTestRoutes from './routes/adminTestRoutes.js';
 import adminTestPricingRoutes from './routes/adminTestPricingRoutes.js';
+import adminTestSeriesRoutes from './routes/adminTestSeriesRoutes.js';
 import adminPyqRoutes from './routes/adminPyqRoutes.js';
 import studentRoutes from './routes/studentRoutes.js';
 import transactionRoutes from './routes/transactionRoutes.js';
@@ -25,6 +26,12 @@ import questionRoutes from './routes/questionRoutes.js';
 import livePreviewRoutes from './routes/livePreviewRoutes.js';
 import memberRoutes from './routes/memberRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
+
+import previewModeRoutes from './routes/previewModeRoutes.js';
+import hallTicketRoutes from './routes/hallTicketRoutes.js';
+import questionReportRoutes from './routes/questionReportRoutes.js';
+import blueprintRoutes from './routes/blueprintRoutes.js';
+import examLifecycleRoutes from './routes/examLifecycleRoutes.js';
 
 import publicRoutes from './routes/publicRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
@@ -48,16 +55,13 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Trust proxy for GCP/cloud load balancers
 app.set('trust proxy', 1);
 
-// Security Headers
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
   contentSecurityPolicy: false,
 }));
 
-// CORS Whitelist for Multi-Subdomain Architecture
 const allowedOrigins = [
   'https://vigyanprep.com',
   'https://www.vigyanprep.com',
@@ -85,12 +89,10 @@ app.use(cors({
 }));
 app.options('*', cors());
 
-// Body Parsers & Cookie Parser
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
-// Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
@@ -100,14 +102,19 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Public Endpoints (Website & Test Engine)
+// Public Endpoints
 app.use('/api/public', publicRoutes);
-
-// Admin Auth (Public, rate-limited)
 app.use('/api/admin/auth', loginLimiter, adminAuthRoutes);
 
 // Mounted Admin Routes
+app.use('/api/admin/test-series', adminTestSeriesRoutes);
 app.use('/api/admin/pyq', adminPyqRoutes);
+app.use('/api/admin/preview', previewModeRoutes);
+app.use('/api/admin/hall-tickets', hallTicketRoutes);
+app.use('/api/admin/question-reports', questionReportRoutes);
+app.use('/api/admin/blueprints', blueprintRoutes);
+app.use('/api/admin/lifecycle', examLifecycleRoutes);
+
 app.use('/api/admin/dashboard', adminDashboardRoutes);
 app.use('/api/admin/test-builder', adminTestRoutes);
 app.use('/api/admin/tests', adminTestPricingRoutes);
@@ -135,7 +142,6 @@ app.use('/api/challenges', challengeRoutes);
 app.use('/api/admin/results-control', adminResultsControlRoutes);
 app.use('/api/exam-access', examAccessRoutes);
 
-// Root fallback
 app.get('/', (req, res) => {
   res.json({
     name: 'Vigyan.prep API Engine',
@@ -144,12 +150,10 @@ app.get('/', (req, res) => {
   });
 });
 
-// 404 handler
 app.use((req, res) => {
   res.status(404).json({ success: false, error: `Route ${req.method} ${req.path} not found` });
 });
 
-// Global error handler
 app.use((err, req, res, next) => {
   console.error('Unhandled server error:', err.stack || err.message);
   res.status(err.status || 500).json({
@@ -158,7 +162,6 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start Server
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n==================================================`);
   console.log(`🚀 Vigyan.prep Production API Server Online`);
