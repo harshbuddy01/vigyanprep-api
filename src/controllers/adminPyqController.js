@@ -340,7 +340,6 @@ export const approveAndPublishPyq = async (req, res) => {
       question_number: q.questionNumber || q.question_number || idx + 1,
       question_text: q.question_text || q.text || `Question ${idx + 1}`,
       type: q.type || 'MCQ',
-      question_type: q.type || 'MCQ',
       options: Array.isArray(q.options) && q.options.length === 4
         ? q.options
         : ['Option A', 'Option B', 'Option C', 'Option D'],
@@ -348,7 +347,7 @@ export const approveAndPublishPyq = async (req, res) => {
       image_url: q.image_url || q.imageUrl || null,
       marks_positive: 4,
       marks_negative: 1,
-      status: 'active'
+      status: 'approved'   // ✅ valid enum value for question_status_enum
     }));
 
     const { data: insertedQs, error: qErr } = await supabase
