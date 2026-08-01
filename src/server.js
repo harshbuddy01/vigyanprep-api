@@ -1,4 +1,4 @@
-// 🚀 Vigyan.prep Production API Server
+// 🚀 Vigyan.prep Production API Server (Multi-Tenant Node/Express Engine)
 import './config/env.js';
 import express from 'express';
 import cors from 'cors';
@@ -34,14 +34,13 @@ import pdfRoutes from './routes/pdf.js';
 import doubtRoutes from './routes/doubtRoutes.js';
 import userRoutes from './routes/userRoutes.js';
 import analyticsRoutes from './routes/analyticsRoutes.js';
-import migrationRoute from './routes/migrationRoute.js';
 import { verifyUserFull } from './controllers/paymentController.js';
 import heartbeatRoutes from './routes/heartbeatRoutes.js';
 import challengeRoutes from './routes/challengeRoutes.js';
 import adminResultsControlRoutes from './routes/adminResultsControlRoutes.js';
 import examAccessRoutes from './routes/examAccessRoutes.js';
 
-// Validate environment defaults
+// Validate environment
 validateEnv();
 
 const __filename = fileURLToPath(import.meta.url);
@@ -49,7 +48,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Trust proxy for GCP/cloud proxies
+// Trust proxy for GCP/cloud load balancers
 app.set('trust proxy', 1);
 
 // Security Headers
@@ -58,11 +57,23 @@ app.use(helmet({
   contentSecurityPolicy: false,
 }));
 
-const allowedOrigins = ['https://vigyanprep.com', 'https://www.vigyanprep.com', 'https://admin.vigyanprep.com', 'https://test.vigyanprep.com', 'https://auth.vigyanprep.com', 'https://vigyan-prep.vercel.app', 'http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175'];
+// CORS Whitelist for Multi-Subdomain Architecture
+const allowedOrigins = [
+  'https://vigyanprep.com',
+  'https://www.vigyanprep.com',
+  'https://admin.vigyanprep.com',
+  'https://test.vigyanprep.com',
+  'https://auth.vigyanprep.com',
+  'https://vigyan-prep.vercel.app',
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:5175'
+];
 
 app.use(cors({
   origin: function(origin, callback) {
-    if(!origin || allowedOrigins.includes(origin)) {
+    if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
@@ -74,26 +85,16 @@ app.use(cors({
 }));
 app.options('*', cors());
 
-// Body Parser & Cookies
+// Body Parsers & Cookie Parser
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
-// Config Endpoint
-app.get('/api/config', (req, res) => {
-  res.json({
-    RAZORPAY_KEY_ID: process.env.RAZORPAY_API_KEY || '',
-    NODE_ENV: process.env.NODE_ENV || 'production',
-    API_URL: process.env.API_URL || 'https://api.vigyanprep.com',
-    FRONTEND_URL: process.env.FRONTEND_URL || 'https://vigyanprep.com'
-  });
-});
-
-// Health check
+// Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
-    database: 'Supabase PostgreSQL',
+    database: 'Supabase PostgreSQL (Multi-Tenant RLS)',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'production'
   });
@@ -105,9 +106,10 @@ app.use('/api/public', publicRoutes);
 // Admin Auth (Public, rate-limited)
 app.use('/api/admin/auth', loginLimiter, adminAuthRoutes);
 
-// Specific Admin Features
+// Mounted Admin Routes
 app.use('/api/admin/pyq', adminPyqRoutes);
 app.use('/api/admin/dashboard', adminDashboardRoutes);
+app.use('/api/admin/test-builder', adminTestRoutes);
 app.use('/api/admin/tests', adminTestPricingRoutes);
 app.use('/api/admin/live-preview', livePreviewRoutes);
 app.use('/api/admin/students', studentRoutes);
@@ -115,10 +117,9 @@ app.use('/api/admin/transactions', transactionRoutes);
 app.use('/api/admin/results', resultRoutes);
 app.use('/api/admin/members', memberRoutes);
 app.use('/api/admin/questions', questionRoutes);
-app.use('/api/admin', migrationRoute);
 app.use('/api/admin', adminRoutes);
 
-// Main Student & Payment Features
+// Student & Payment Routes
 app.use('/api', apiLimiter, authRoutes);
 app.post('/api/verify-user-full', paymentLimiter, verifyUserFull);
 app.use('/api/payment', paymentRoutes);
@@ -134,29 +135,26 @@ app.use('/api/challenges', challengeRoutes);
 app.use('/api/admin/results-control', adminResultsControlRoutes);
 app.use('/api/exam-access', examAccessRoutes);
 
-// Static assets & root fallback
-app.use('/frontend', express.static(path.join(__dirname, '../frontend')));
-app.use('/assets', express.static(path.join(__dirname, '../dist/assets')));
-
+// Root fallback
 app.get('/', (req, res) => {
   res.json({
-    name: 'Vigyan.prep API',
+    name: 'Vigyan.prep API Engine',
     status: 'online',
-    version: '2.0.0'
+    version: '2.5.0'
   });
 });
 
 // 404 handler
 app.use((req, res) => {
-  res.status(404).json({ success: false, message: `Route ${req.method} ${req.path} not found` });
+  res.status(404).json({ success: false, error: `Route ${req.method} ${req.path} not found` });
 });
 
 // Global error handler
 app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err.stack || err.message);
+  console.error('Unhandled server error:', err.stack || err.message);
   res.status(err.status || 500).json({
     success: false,
-    message: process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message
+    error: process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message
   });
 });
 
