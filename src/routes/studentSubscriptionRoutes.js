@@ -23,10 +23,12 @@ router.get('/subscriptions', async (req, res) => {
       .select('*, plans:plan_id(id, name, exam_type, duration_days, price, discount_price)')
       .order('created_at', { ascending: false });
 
-    if (studentId) {
+    if (studentId && studentEmail) {
+      query = query.or(`student_id.eq.${studentId},student_email.ilike.${studentEmail.trim()}`);
+    } else if (studentId) {
       query = query.eq('student_id', studentId);
     } else if (studentEmail) {
-      query = query.eq('student_email', studentEmail);
+      query = query.ilike('student_email', studentEmail.trim());
     }
 
     const { data: subscriptions, error } = await query;
