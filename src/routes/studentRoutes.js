@@ -58,4 +58,64 @@ router.get('/', async (req, res) => {
   }
 });
 
+// POST /api/admin/students/notify — Manually send email (via AWS SES) or generate WhatsApp notification
+router.post('/notify', async (req, res) => {
+  try {
+    const { studentEmail, studentName, channel, subject, message, testId } = req.body;
+
+    if (!studentEmail) {
+      return res.status(400).json({ success: false, error: 'studentEmail is required' });
+    }
+
+    if (channel === 'email') {
+      const { sendEmail, EMAIL_FROM } = await import('../services/emailService.js');
+      
+      const htmlBody = `
+        <div style="background-color:#0f0d08;padding:32px;font-family:sans-serif;color:#e8dcc8;">
+          <div style="max-width:550px;margin:0 auto;background:#1a1610;border:1px solid rgba(212,165,32,0.3);border-radius:12px;padding:28px;">
+            <h2 style="color:#d4a520;margin-top:0;">📢 Notification from VIGYAN.prep</h2>
+            <p>Dear <strong>${studentName || 'Student'}</strong>,</p>
+            <div style="background:rgba(212,165,32,0.08);padding:16px;border-left:4px solid #d4a520;margin:20px 0;line-height:1.6;">
+              ${(message || '').replace(/\n/g, '<br/>')}
+            </div>
+            <p style="font-size:13px;color:#9a8c75;">
+              If you have any questions, reach out to us at <a href="mailto:support@vigyanprep.com" style="color:#d4a520;">support@vigyanprep.com</a>.
+            </p>
+          </div>
+        </div>
+      `;
+
+      const result = await sendEmail(
+        studentEmail,
+        subject || '📢 Notification from VIGYAN.prep',
+        htmlBody,
+        { from: EMAIL_FROM.NOTIFICATION }
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: 'Email notification sent successfully',
+        result
+      });
+    }
+
+    if (channel === 'whatsapp') {
+      // Formulate WhatsApp message text and deep link
+      const text = encodeURIComponent(`Hello ${studentName || 'Student'},\n\n${message || 'Important update regarding your test series on VIGYAN.prep.'}\n\nVisit: https://test.vigyanprep.com/dashboard`);
+      const whatsappUrl = `https://api.whatsapp.com/send?text=${text}`;
+
+      return res.status(200).json({
+        success: true,
+        whatsappUrl,
+        message: 'WhatsApp notification link generated'
+      });
+    }
+
+    return res.status(400).json({ success: false, error: 'Invalid channel (use email or whatsapp)' });
+  } catch (err) {
+    console.error('❌ Admin notify student error:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 export default router;
