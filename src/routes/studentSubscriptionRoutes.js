@@ -23,9 +23,11 @@ router.get('/subscriptions', async (req, res) => {
       .select('*')
       .order('created_at', { ascending: false });
 
-    if (studentId && studentEmail) {
+    const isUUID = (str) => /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(str);
+
+    if (studentId && isUUID(studentId) && studentEmail) {
       query = query.or(`student_id.eq.${studentId},student_email.ilike.${studentEmail.trim()}`);
-    } else if (studentId) {
+    } else if (studentId && isUUID(studentId)) {
       query = query.eq('student_id', studentId);
     } else if (studentEmail) {
       query = query.ilike('student_email', studentEmail.trim());
