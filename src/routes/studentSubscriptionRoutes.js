@@ -17,10 +17,10 @@ router.get('/subscriptions', async (req, res) => {
       return res.status(401).json({ success: false, error: 'Authentication required' });
     }
 
-    // Query subscriptions and join with plans table for plan details
+    // 1. Query student subscriptions
     let query = supabase
       .from('subscriptions')
-      .select('*, plans:plan_id(id, name, exam_type, duration_days, price, discount_price)')
+      .select('*')
       .order('created_at', { ascending: false });
 
     if (studentId && studentEmail) {
@@ -38,6 +38,14 @@ router.get('/subscriptions', async (req, res) => {
       return res.status(500).json({ success: false, error: error.message });
     }
 
+    // 2. Safely fetch plan details for extracted plan IDs
+    const planIds = [...new Set((subscriptions || []).map(s => s.plan_id).filter(Boolean))];
+    let plansMap = {};
+    if (planIds.length > 0) {
+      const { data: plansData } = await supabase.from('plans').select('*').in('id', planIds);
+      (plansData || []).forEach(p => { plansMap[p.id] = p; });
+    }
+
     // Auto-expire subscriptions that have passed their expiry date
     const now = new Date();
     const enrichedSubs = (subscriptions || []).map(sub => {
@@ -49,10 +57,10 @@ router.get('/subscriptions', async (req, res) => {
       return {
         ...sub,
         status: isExpired ? 'expired' : sub.status,
-        plan: sub.plans || {
-          name: sub.student_name || 'Unknown Plan',
+        plan: plansMap[sub.plan_id] || sub.plans || {
+          name: sub.plan_name || 'Test Series Pass',
           exam_type: sub.exam_type || 'IAT',
-          duration_days: 30
+          duration_days: sub.duration_days || 30
         },
         days_remaining: isExpired ? 0 : Math.max(0, Math.ceil((new Date(sub.expires_at) - now) / (1000 * 60 * 60 * 24)))
       };
