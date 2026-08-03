@@ -92,6 +92,13 @@ router.post('/notify', async (req, res) => {
         { from: EMAIL_FROM.NOTIFICATION }
       );
 
+      if (!result || !result.success) {
+        return res.status(400).json({
+          success: false,
+          error: result?.error || 'AWS SES failed to deliver email. Check if account is in Sandbox mode.'
+        });
+      }
+
       return res.status(200).json({
         success: true,
         message: 'Email notification sent successfully',
