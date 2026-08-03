@@ -46,6 +46,7 @@ import heartbeatRoutes from './routes/heartbeatRoutes.js';
 import challengeRoutes from './routes/challengeRoutes.js';
 import adminResultsControlRoutes from './routes/adminResultsControlRoutes.js';
 import examAccessRoutes from './routes/examAccessRoutes.js';
+import studentSubscriptionRoutes from './routes/studentSubscriptionRoutes.js';
 
 // Validate environment
 validateEnv();
@@ -146,6 +147,7 @@ app.use('/api/exam/heartbeat', heartbeatRoutes);
 app.use('/api/challenges', challengeRoutes);
 app.use('/api/admin/results-control', adminResultsControlRoutes);
 app.use('/api/exam-access', examAccessRoutes);
+app.use('/api/student', studentSubscriptionRoutes);
 
 app.get('/', (req, res) => {
   res.json({

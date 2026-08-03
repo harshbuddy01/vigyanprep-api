@@ -57,9 +57,33 @@ router.get('/stats', async (req, res) => {
     // 4. Fetch real payments from database
     const { data: payments } = await supabase
       .from('payments')
-      .select('amount, created_at, verified_at');
+      .select('amount, created_at, verified_at, status');
 
-    const totalRevenue = (payments || []).reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+    const capturedPayments = (payments || []).filter(p => p.status === 'captured');
+    const totalRevenue = capturedPayments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+
+    // Generate real daily revenue trend from the last 7 days
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const dailyRevenue = {};
+    dayNames.forEach(d => { dailyRevenue[d] = 0; });
+
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    capturedPayments.forEach(p => {
+      const paymentDate = new Date(p.verified_at || p.created_at);
+      if (paymentDate >= sevenDaysAgo) {
+        const dayName = dayNames[paymentDate.getDay()];
+        dailyRevenue[dayName] += Number(p.amount) || 0;
+      }
+    });
+
+    // Order trend starting from today going back 7 days
+    const today = new Date().getDay();
+    const orderedTrend = [];
+    for (let i = 6; i >= 0; i--) {
+      const dayIndex = (today - i + 7) % 7;
+      const name = dayNames[dayIndex];
+      orderedTrend.push({ name, revenue: dailyRevenue[name] });
+    }
 
     return res.status(200).json({
       success: true,
@@ -69,15 +93,7 @@ router.get('/stats', async (req, res) => {
         totalAttempts: attemptCount || 0,
         activeUsers: uniqueStudents.length,
         revenue: totalRevenue,
-        revenueTrend: [
-          { name: 'Mon', revenue: 0 },
-          { name: 'Tue', revenue: 0 },
-          { name: 'Wed', revenue: 0 },
-          { name: 'Thu', revenue: 0 },
-          { name: 'Fri', revenue: 0 },
-          { name: 'Sat', revenue: 0 },
-          { name: 'Sun', revenue: totalRevenue }
-        ]
+        revenueTrend: orderedTrend
       }
     });
   } catch (err) {

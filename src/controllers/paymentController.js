@@ -64,9 +64,13 @@ export async function createPaymentOrder(req, res) {
 
 export async function verifyPayment(req, res) {
   try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, planId, amount } = req.body;
+    const {
+      razorpay_order_id, razorpay_payment_id, razorpay_signature,
+      planId, amount, studentEmail, studentName
+    } = req.body;
     const studentId = req.user?.id || req.body?.studentId;
 
+    // 1. Verify Razorpay signature
     if (keySecret && razorpay_signature) {
       const generated_signature = crypto
         .createHmac('sha256', keySecret)
@@ -78,22 +82,88 @@ export async function verifyPayment(req, res) {
       }
     }
 
-    // Save payment record to Supabase
-    await supabase.from('payments').insert({
+    // 2. Look up plan details from database
+    let planName = '';
+    let examType = '';
+    let durationDays = 30;
+    if (planId) {
+      const { data: plan } = await supabase.from('plans').select('*').eq('id', planId).single();
+      if (plan) {
+        planName = plan.name || '';
+        examType = plan.exam_type || '';
+        durationDays = plan.duration_days || 30;
+      }
+    }
+
+    // 3. Save enriched payment record with student details
+    const paymentRecord = {
       razorpay_order_id: razorpay_order_id || 'manual',
       razorpay_payment_id: razorpay_payment_id || 'manual',
       amount: amount || 999,
       status: 'captured',
-      student_id: studentId,
-      plan_id: planId,
+      student_id: studentId || null,
+      plan_id: planId || null,
+      student_email: studentEmail || null,
+      student_name: studentName || null,
+      plan_name: planName || null,
+      exam_type: examType || null,
+      duration_days: durationDays,
       verified_at: new Date().toISOString()
-    });
+    };
 
+    const { error: paymentError } = await supabase.from('payments').insert(paymentRecord);
+    if (paymentError) {
+      console.error('❌ Payment insert error:', paymentError);
+    }
+
+    // 4. Create subscription record with start/expiry dates
+    let subscriptionData = null;
+    if (planId && studentId) {
+      const startsAt = new Date();
+      const expiresAt = new Date(startsAt.getTime() + durationDays * 24 * 60 * 60 * 1000);
+
+      const subscriptionRecord = {
+        student_id: studentId,
+        plan_id: planId,
+        starts_at: startsAt.toISOString(),
+        expires_at: expiresAt.toISOString(),
+        status: 'active',
+        student_email: studentEmail || null,
+        student_name: studentName || null,
+        amount_paid: amount || 999,
+        razorpay_payment_id: razorpay_payment_id || null,
+        razorpay_order_id: razorpay_order_id || null
+      };
+
+      const { data: sub, error: subError } = await supabase
+        .from('subscriptions')
+        .insert(subscriptionRecord)
+        .select()
+        .single();
+
+      if (subError) {
+        console.error('⚠️ Subscription insert error (non-fatal):', subError.message);
+      } else {
+        subscriptionData = sub;
+      }
+    }
+
+    // 5. Return success with subscription details
     return res.status(200).json({
       success: true,
-      message: 'Payment verified successfully'
+      message: 'Payment verified and subscription activated successfully',
+      subscription: subscriptionData ? {
+        id: subscriptionData.id,
+        planName,
+        examType,
+        durationDays,
+        startsAt: subscriptionData.starts_at,
+        expiresAt: subscriptionData.expires_at,
+        status: subscriptionData.status
+      } : null
     });
   } catch (error) {
+    console.error('❌ Payment verification error:', error);
     return res.status(500).json({ success: false, error: error.message });
   }
 }
