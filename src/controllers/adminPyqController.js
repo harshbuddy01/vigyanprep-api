@@ -324,15 +324,31 @@ export const updateQuestion = async (req, res) => {
 
     const { data: existingQ } = await supabase.from('questions').select('test_id').eq('id', id).single();
 
+    // Build partial update — only include fields that were actually sent
+    const updatePayload = {};
+    if (updates.question_text !== undefined || updates.text !== undefined) {
+      updatePayload.question_text = updates.question_text || updates.text;
+    }
+    if (updates.options !== undefined) {
+      updatePayload.options = updates.options;
+    }
+    if (updates.correct_answer !== undefined || updates.correctAnswer !== undefined) {
+      updatePayload.correct_answer = updates.correct_answer || updates.correctAnswer;
+    }
+    if (updates.section !== undefined) {
+      updatePayload.section = updates.section;
+    }
+    if (updates.image_url !== undefined || updates.imageUrl !== undefined) {
+      updatePayload.image_url = updates.image_url || updates.imageUrl || null;
+    }
+
+    if (Object.keys(updatePayload).length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
     const { data, error } = await supabase
       .from('questions')
-      .update({
-        question_text: updates.question_text || updates.text,
-        options: updates.options,
-        correct_answer: updates.correct_answer || updates.correctAnswer,
-        section: updates.section,
-        image_url: updates.image_url || updates.imageUrl || null
-      })
+      .update(updatePayload)
       .eq('id', id)
       .select()
       .single();
