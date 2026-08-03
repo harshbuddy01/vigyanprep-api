@@ -134,4 +134,39 @@ router.get('/dashboard', async (req, res) => {
   }
 });
 
+// GET /api/student/hall-tickets — Returns all hall tickets for the logged-in student
+router.get('/hall-tickets', async (req, res) => {
+  try {
+    const studentId = req.user?.id;
+
+    if (!studentId) {
+      return res.status(401).json({ success: false, error: 'Authentication required' });
+    }
+
+    const { data: hallTickets, error } = await supabase
+      .from('hall_tickets')
+      .select('id, test_id, unique_exam_id, issued_at, delivered_email, tests:test_id(id, title, name, exam_type, test_type, window_start, window_end, duration_minutes, status)')
+      .eq('student_id', studentId)
+      .order('issued_at', { ascending: false });
+
+    if (error) {
+      console.error('❌ Hall tickets fetch error:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    const enrichedTickets = (hallTickets || []).map(ticket => ({
+      ...ticket,
+      test: ticket.tests || null
+    }));
+
+    return res.status(200).json({
+      success: true,
+      hallTickets: enrichedTickets
+    });
+  } catch (error) {
+    console.error('❌ Student hall tickets error:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 export default router;

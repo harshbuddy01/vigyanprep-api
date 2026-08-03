@@ -1,6 +1,8 @@
 import crypto from 'crypto';
 import razorpayInstance from '../config/razorpay.js';
 import { supabase } from '../db/supabase.js';
+import { sendEmail } from '../services/emailService.js';
+import { paymentConfirmationEmail } from '../services/emailTemplates.js';
 
 const keyId = process.env.RAZORPAY_KEY_ID || process.env.RAZORPAY_API_KEY || '';
 const keySecret = process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_API_SECRET || '';
@@ -148,7 +150,30 @@ export async function verifyPayment(req, res) {
       }
     }
 
-    // 5. Return success with subscription details
+    // 5. Send payment confirmation email
+    if (studentEmail && subscriptionData) {
+      try {
+        const startsFormatted = new Date(subscriptionData.starts_at).toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        const expiresFormatted = new Date(subscriptionData.expires_at).toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+        const html = paymentConfirmationEmail({
+          studentName: studentName || 'Student',
+          planName: planName || 'Test Series',
+          examType: examType || 'Exam',
+          durationDays,
+          amount: amount || 999,
+          startsAt: startsFormatted,
+          expiresAt: expiresFormatted,
+          paymentId: razorpay_payment_id || 'N/A'
+        });
+
+        await sendEmail(studentEmail, `\u2705 Payment Confirmed \u2014 ${planName || 'Test Series'}`, html);
+      } catch (emailErr) {
+        console.error('\u26a0\ufe0f Payment confirmation email failed (non-fatal):', emailErr.message);
+      }
+    }
+
+    // 6. Return success with subscription details
     return res.status(200).json({
       success: true,
       message: 'Payment verified and subscription activated successfully',

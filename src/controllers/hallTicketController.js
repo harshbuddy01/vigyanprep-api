@@ -3,6 +3,8 @@
 
 import crypto from 'crypto';
 import { supabase } from '../db/supabase.js';
+import { sendEmail } from '../services/emailService.js';
+import { hallTicketEmail } from '../services/emailTemplates.js';
 
 // Rate limiter tracking map (max 5 entry attempts per minute per account)
 const entryAttemptTracker = new Map();
@@ -58,6 +60,36 @@ export const issueHallTicket = async (req, res) => {
       .single();
 
     if (error) throw error;
+
+    // 📧 Auto-email hall ticket to student
+    try {
+      const { data: student } = await supabase.from('users').select('email, full_name').eq('id', studentId).single();
+      const { data: testFull } = await supabase.from('tests').select('*').eq('id', testId).single();
+
+      if (student?.email && testFull) {
+        const windowStart = testFull.window_start ? new Date(testFull.window_start) : new Date();
+        const examDate = windowStart.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        const examTime = windowStart.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+        const html = hallTicketEmail({
+          studentName: student.full_name || 'Student',
+          examId: uniqueExamId,
+          testTitle: testFull.title || testFull.name || 'Test',
+          examType: testFull.exam_type || 'Exam',
+          examDate,
+          examTime,
+          duration: testFull.duration_minutes || 180,
+          examLink: `https://test.vigyanprep.com/dashboard`
+        });
+
+        await sendEmail(student.email, `🎫 Exam Pass Issued — ${testFull.title || 'Test'}`, html);
+
+        // Update delivery tracking
+        await supabase.from('hall_tickets').update({ delivered_email: true }).eq('id', ticket.id);
+      }
+    } catch (emailErr) {
+      console.error('⚠️ Hall ticket email failed (non-fatal):', emailErr.message);
+    }
 
     return res.status(200).json({
       success: true,

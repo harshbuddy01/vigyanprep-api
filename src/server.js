@@ -47,6 +47,7 @@ import challengeRoutes from './routes/challengeRoutes.js';
 import adminResultsControlRoutes from './routes/adminResultsControlRoutes.js';
 import examAccessRoutes from './routes/examAccessRoutes.js';
 import studentSubscriptionRoutes from './routes/studentSubscriptionRoutes.js';
+import { startReminderScheduler } from './services/reminderScheduler.js';
 
 // Validate environment
 validateEnv();
@@ -153,7 +154,7 @@ app.get('/', (req, res) => {
   res.json({
     name: 'Vigyan.prep API Engine',
     status: 'online',
-    version: '2.5.0'
+    version: '3.0.0'
   });
 });
 
@@ -175,6 +176,9 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`📡 Port: ${PORT}`);
   console.log(`🌐 API URL: https://api.vigyanprep.com`);
   console.log(`==================================================\n`);
+
+  // Start background services
+  startReminderScheduler();
 });
 
 export default app;

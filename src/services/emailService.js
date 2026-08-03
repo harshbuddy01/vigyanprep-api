@@ -1,73 +1,72 @@
-import axios from "axios";
-import { getEnrollmentEmailHtml } from "../utils/emailTemplates.js";
-import dotenv from "dotenv";
-import path from "path";
-import { fileURLToPath } from "url";
+// 📧 Vigyan.prep AWS SES Email Service
+import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses';
 
-// Load environment variables immediately
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const envPath = path.join(__dirname, "../.env");
-dotenv.config({ path: envPath });
+const AWS_REGION = process.env.AWS_SES_REGION || process.env.AWS_REGION || 'ap-southeast-2';
+const FROM_EMAIL = process.env.SES_FROM_EMAIL || 'support@vigyanprep.com';
+const FROM_NAME = process.env.SES_FROM_NAME || 'VIGYAN.prep';
 
-/**
- * 📧 SEND ENROLLMENT EMAIL VIA PHP RELAY (BYPASS BRIDGE)
- * Uses HTTPS protocol (Port 443) which is never blocked by Railway.
- */
-export async function sendPaymentEmail(email, name, rollNumber, testName, attempts = 3) {
-  const html = getEnrollmentEmailHtml(name, rollNumber, testName);
-  const gatewayUrl = process.env.EMAIL_GATEWAY_URL;
-  const gatewaySecret = process.env.EMAIL_GATEWAY_SECRET;
+let sesClient = null;
 
-  if (!gatewayUrl || !gatewaySecret) {
-    console.error("❌ Email Gateway configuration missing in .env!");
-    return false;
-  }
-
-  for (let i = 0; i < attempts; i++) {
-    try {
-      console.log(`📡 SECURE RELAY attempt ${i + 1} for ${email}...`);
-      
-      const payload = JSON.stringify({
-        to: email,
-        subject: `Your Vigyan Prep Roll Number - ${testName.toUpperCase()}`,
-        html: html
-      });
-      const timestamp = Date.now().toString();
-      
-      // Generate HMAC signature to match PHP side logic
-      const crypto = await import('crypto');
-      const signature = crypto.createHmac('sha256', gatewaySecret)
-                             .update(payload + timestamp)
-                             .digest('hex');
-
-      const response = await axios.post(gatewayUrl, payload, {
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Vigyan-Timestamp': timestamp,
-          'X-Vigyan-Signature': signature
-        },
-        timeout: 15000
-      });
-
-      if (response.data && response.data.success) {
-        console.log(`✅ Email sent successfully via Relay!`);
-        return true;
-      } else {
-        throw new Error(response.data.error || "Gateway reported failure");
-      }
-    } catch (err) {
-      console.error(`⚠️ Relay attempt ${i + 1} failed:`, err.message);
-      
-      if (i < attempts - 1) {
-        const delay = 2000;
-        await new Promise(r => setTimeout(r, delay));
-      }
-    }
-  }
-
-  console.error(`❌ Final email relay failure for ${email} after ${attempts} attempts`);
-  return false;
+try {
+  // AWS SDK auto-discovers credentials from env vars, IAM roles, or shared config
+  sesClient = new SESClient({ region: AWS_REGION });
+  console.log(`✅ AWS SES client initialized (region: ${AWS_REGION})`);
+} catch (err) {
+  console.warn('⚠️ AWS SES client initialization failed:', err.message);
 }
 
-export default { sendPaymentEmail };
+/**
+ * Send an email via AWS SES
+ * @param {string} to - Recipient email
+ * @param {string} subject - Email subject
+ * @param {string} htmlBody - HTML email body
+ * @param {string} textBody - Plain text fallback
+ * @returns {Promise<{success: boolean, messageId?: string, error?: string}>}
+ */
+export async function sendEmail(to, subject, htmlBody, textBody = '') {
+  if (!sesClient) {
+    console.warn('⚠️ SES client not available, skipping email to:', to);
+    return { success: false, error: 'SES client not initialized' };
+  }
+
+  try {
+    const params = {
+      Source: `${FROM_NAME} <${FROM_EMAIL}>`,
+      Destination: { ToAddresses: [to] },
+      Message: {
+        Subject: { Data: subject, Charset: 'UTF-8' },
+        Body: {
+          Html: { Data: htmlBody, Charset: 'UTF-8' },
+          ...(textBody ? { Text: { Data: textBody, Charset: 'UTF-8' } } : {})
+        }
+      }
+    };
+
+    const command = new SendEmailCommand(params);
+    const result = await sesClient.send(command);
+    console.log(`📧 Email sent to ${to}: ${subject} (MessageId: ${result.MessageId})`);
+    return { success: true, messageId: result.MessageId };
+  } catch (err) {
+    console.error(`❌ Email send failed to ${to}:`, err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Send email to multiple recipients (batch)
+ * @param {string[]} recipients - Array of email addresses
+ * @param {string} subject - Email subject
+ * @param {string} htmlBody - HTML email body
+ */
+export async function sendBulkEmail(recipients, subject, htmlBody) {
+  const results = [];
+  for (const email of recipients) {
+    const result = await sendEmail(email, subject, htmlBody);
+    results.push({ email, ...result });
+    // Small delay to avoid SES rate limits
+    await new Promise(r => setTimeout(r, 100));
+  }
+  return results;
+}
+
+export default { sendEmail, sendBulkEmail };
