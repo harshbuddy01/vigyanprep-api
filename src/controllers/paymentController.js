@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import razorpayInstance from '../config/razorpay.js';
 import { supabase } from '../db/supabase.js';
-import { sendEmail } from '../services/emailService.js';
+import { sendEmail, EMAIL_FROM } from '../services/emailService.js';
 import { paymentConfirmationEmail } from '../services/emailTemplates.js';
 
 const keyId = process.env.RAZORPAY_KEY_ID || process.env.RAZORPAY_API_KEY || '';
@@ -167,7 +167,7 @@ export async function verifyPayment(req, res) {
           paymentId: razorpay_payment_id || 'N/A'
         });
 
-        await sendEmail(studentEmail, `\u2705 Payment Confirmed \u2014 ${planName || 'Test Series'}`, html);
+        await sendEmail(studentEmail, `\u2705 Payment Confirmed \u2014 ${planName || 'Test Series'}`, html, { from: EMAIL_FROM.PAYMENT });
       } catch (emailErr) {
         console.error('\u26a0\ufe0f Payment confirmation email failed (non-fatal):', emailErr.message);
       }

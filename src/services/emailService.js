@@ -2,8 +2,15 @@
 import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses';
 
 const AWS_REGION = process.env.AWS_SES_REGION || process.env.AWS_REGION || 'ap-southeast-2';
-const FROM_EMAIL = process.env.SES_FROM_EMAIL || 'support@vigyanprep.com';
-const FROM_NAME = process.env.SES_FROM_NAME || 'VIGYAN.prep';
+
+// Dedicated sender addresses
+export const EMAIL_FROM = {
+  PAYMENT:      'payment@vigyanprep.com',
+  NOTIFICATION: 'noreply@vigyanprep.com',
+  SUPPORT:      'support@vigyanprep.com'
+};
+
+const BRAND_NAME = 'VIGYAN.prep';
 
 let sesClient = null;
 
@@ -20,31 +27,35 @@ try {
  * @param {string} to - Recipient email
  * @param {string} subject - Email subject
  * @param {string} htmlBody - HTML email body
- * @param {string} textBody - Plain text fallback
+ * @param {object} options - Optional: { from, textBody, replyTo }
  * @returns {Promise<{success: boolean, messageId?: string, error?: string}>}
  */
-export async function sendEmail(to, subject, htmlBody, textBody = '') {
+export async function sendEmail(to, subject, htmlBody, options = {}) {
   if (!sesClient) {
     console.warn('⚠️ SES client not available, skipping email to:', to);
     return { success: false, error: 'SES client not initialized' };
   }
 
+  const fromEmail = options.from || EMAIL_FROM.NOTIFICATION;
+  const replyTo = options.replyTo || EMAIL_FROM.SUPPORT;
+
   try {
     const params = {
-      Source: `${FROM_NAME} <${FROM_EMAIL}>`,
+      Source: `${BRAND_NAME} <${fromEmail}>`,
       Destination: { ToAddresses: [to] },
+      ReplyToAddresses: [replyTo],
       Message: {
         Subject: { Data: subject, Charset: 'UTF-8' },
         Body: {
           Html: { Data: htmlBody, Charset: 'UTF-8' },
-          ...(textBody ? { Text: { Data: textBody, Charset: 'UTF-8' } } : {})
+          ...(options.textBody ? { Text: { Data: options.textBody, Charset: 'UTF-8' } } : {})
         }
       }
     };
 
     const command = new SendEmailCommand(params);
     const result = await sesClient.send(command);
-    console.log(`📧 Email sent to ${to}: ${subject} (MessageId: ${result.MessageId})`);
+    console.log(`📧 [${fromEmail}] Email sent to ${to}: ${subject} (MessageId: ${result.MessageId})`);
     return { success: true, messageId: result.MessageId };
   } catch (err) {
     console.error(`❌ Email send failed to ${to}:`, err.message);
@@ -57,11 +68,12 @@ export async function sendEmail(to, subject, htmlBody, textBody = '') {
  * @param {string[]} recipients - Array of email addresses
  * @param {string} subject - Email subject
  * @param {string} htmlBody - HTML email body
+ * @param {object} options - Optional: { from, replyTo }
  */
-export async function sendBulkEmail(recipients, subject, htmlBody) {
+export async function sendBulkEmail(recipients, subject, htmlBody, options = {}) {
   const results = [];
   for (const email of recipients) {
-    const result = await sendEmail(email, subject, htmlBody);
+    const result = await sendEmail(email, subject, htmlBody, options);
     results.push({ email, ...result });
     // Small delay to avoid SES rate limits
     await new Promise(r => setTimeout(r, 100));
@@ -69,4 +81,4 @@ export async function sendBulkEmail(recipients, subject, htmlBody) {
   return results;
 }
 
-export default { sendEmail, sendBulkEmail };
+export default { sendEmail, sendBulkEmail, EMAIL_FROM };
