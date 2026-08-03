@@ -70,11 +70,32 @@ export async function verifyPayment(req, res) {
       razorpay_order_id, razorpay_payment_id, razorpay_signature,
       planId, amount, studentEmail, studentName
     } = req.body;
+    let finalStudentEmail = studentEmail || req.body?.email;
+    let finalStudentName = studentName || req.body?.name;
+
+    // Fallback: If website localStorage did not pass studentEmail, fetch email from Razorpay Payment API
+    if (!finalStudentEmail && razorpay_payment_id && razorpay_payment_id !== 'manual' && razorpayInstance?.payments) {
+      try {
+        const rzpPayment = await razorpayInstance.payments.fetch(razorpay_payment_id);
+        if (rzpPayment?.email) {
+          finalStudentEmail = rzpPayment.email;
+        }
+        if (rzpPayment?.notes?.email) {
+          finalStudentEmail = finalStudentEmail || rzpPayment.notes.email;
+        }
+        if (rzpPayment?.notes?.name) {
+          finalStudentName = finalStudentName || rzpPayment.notes.name;
+        }
+      } catch (rzpErr) {
+        console.warn('⚠️ Could not fetch email from Razorpay API:', rzpErr.message);
+      }
+    }
+
     let resolvedStudentId = req.user?.id || req.body?.studentId || req.body?.student_id;
 
     // Auto-resolve studentId from email if studentId was not provided in payment request
-    if (!resolvedStudentId && studentEmail) {
-      const cleanEmail = String(studentEmail).trim().toLowerCase();
+    if (!resolvedStudentId && finalStudentEmail) {
+      const cleanEmail = String(finalStudentEmail).trim().toLowerCase();
 
       // 1. Look up in users table
       const { data: user } = await supabase
@@ -101,7 +122,7 @@ export async function verifyPayment(req, res) {
             .from('users')
             .insert({
               email: cleanEmail,
-              full_name: studentName || 'Student',
+              full_name: finalStudentName || 'Student',
               role: 'student',
               org_id: '00000000-0000-0000-0000-000000000001'
             })
@@ -137,8 +158,8 @@ export async function verifyPayment(req, res) {
       status: 'captured',
       student_id: finalStudentId,
       plan_id: planId || null,
-      student_email: studentEmail || null,
-      student_name: studentName || null,
+      student_email: finalStudentEmail || null,
+      student_name: finalStudentName || null,
       plan_name: planName || null,
       exam_type: examType || null,
       duration_days: durationDays,
@@ -162,8 +183,8 @@ export async function verifyPayment(req, res) {
         starts_at: startsAt.toISOString(),
         expires_at: expiresAt.toISOString(),
         status: 'active',
-        student_email: studentEmail || null,
-        student_name: studentName || null,
+        student_email: finalStudentEmail || null,
+        student_name: finalStudentName || null,
         amount_paid: amount || 999,
         razorpay_payment_id: razorpay_payment_id || null,
         razorpay_order_id: razorpay_order_id || null
@@ -183,13 +204,13 @@ export async function verifyPayment(req, res) {
     }
 
     // 5. Send payment confirmation email
-    if (studentEmail) {
+    if (finalStudentEmail) {
       try {
         const startsFormatted = subscriptionData ? new Date(subscriptionData.starts_at).toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : 'Today';
         const expiresFormatted = subscriptionData ? new Date(subscriptionData.expires_at).toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : '30 days from now';
 
         const html = paymentConfirmationEmail({
-          studentName: studentName || 'Student',
+          studentName: finalStudentName || 'Student',
           planName: planName || 'Test Series Pass',
           examType: examType || 'IAT',
           durationDays,
@@ -199,7 +220,7 @@ export async function verifyPayment(req, res) {
           paymentId: razorpay_payment_id || 'N/A'
         });
 
-        await sendEmail(studentEmail, `\u2705 Payment Confirmed \u2014 ${planName || 'Test Series'}`, html, { from: EMAIL_FROM.PAYMENT });
+        await sendEmail(finalStudentEmail, `\u2705 Payment Confirmed \u2014 ${planName || 'Test Series'}`, html, { from: EMAIL_FROM.PAYMENT });
       } catch (emailErr) {
         console.error('\u26a0\ufe0f Payment confirmation email failed (non-fatal):', emailErr.message);
       }
