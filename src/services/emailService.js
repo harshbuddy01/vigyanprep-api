@@ -1,11 +1,11 @@
 // 📧 Vigyan.prep Email Service (Powered by Brevo)
 const BREVO_API_KEY = process.env.BREVO_API_KEY;
 
-// Dedicated sender addresses — must match a verified Brevo sender domain
+// Dedicated sender addresses — all verified in Brevo with DKIM + DMARC on vigyanprep.com
 export const EMAIL_FROM = {
-  PAYMENT:      { email: 'anandharsh437@gmail.com', name: 'Vigyan.prep Billing' },
-  NOTIFICATION: { email: 'anandharsh437@gmail.com', name: 'Vigyan.prep' },
-  SUPPORT:      { email: 'anandharsh437@gmail.com', name: 'Vigyan.prep Support' }
+  PAYMENT:      { email: 'payment@vigyanprep.com', name: 'VIGYANprep' },
+  NOTIFICATION: { email: 'noreply@vigyanprep.com', name: 'VIGYANprep' },
+  SUPPORT:      { email: 'support@vigyanprep.com', name: 'VIGYANprep' }
 };
 
 /**
