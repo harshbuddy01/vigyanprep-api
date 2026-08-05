@@ -1,11 +1,11 @@
 // 📧 Vigyan.prep Email Service (Powered by Brevo)
 const BREVO_API_KEY = process.env.BREVO_API_KEY;
 
-// Dedicated sender addresses
+// Dedicated sender addresses — must match a verified Brevo sender domain
 export const EMAIL_FROM = {
-  PAYMENT:      { email: 'payment@vigyanprep.com', name: 'Vigyan.prep Billing' },
-  NOTIFICATION: { email: 'noreply@vigyanprep.com', name: 'Vigyan.prep' },
-  SUPPORT:      { email: 'support@vigyanprep.com', name: 'Vigyan.prep Support' }
+  PAYMENT:      { email: 'anandharsh437@gmail.com', name: 'Vigyan.prep Billing' },
+  NOTIFICATION: { email: 'anandharsh437@gmail.com', name: 'Vigyan.prep' },
+  SUPPORT:      { email: 'anandharsh437@gmail.com', name: 'Vigyan.prep Support' }
 };
 
 /**
@@ -59,7 +59,8 @@ export async function sendEmail(to, subject, htmlBody, options = {}) {
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.message || 'Failed to send email via Brevo');
+      console.error('❌ Brevo API error response:', JSON.stringify(data));
+      throw new Error(data.message || JSON.stringify(data) || 'Failed to send email via Brevo');
     }
 
     console.log(`📧 [${sender.email}] Email sent to ${to}: ${subject} (MessageId: ${data.messageId})`);
