@@ -1,29 +1,17 @@
-// 📧 Vigyan.prep AWS SES Email Service
-import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses';
+// 📧 Vigyan.prep Email Service (Powered by Brevo)
+import fetch from 'node-fetch';
 
-const AWS_REGION = process.env.AWS_SES_REGION || process.env.AWS_REGION || 'ap-southeast-2';
+const BREVO_API_KEY = process.env.BREVO_API_KEY;
 
 // Dedicated sender addresses
 export const EMAIL_FROM = {
-  PAYMENT:      'payment@vigyanprep.com',
-  NOTIFICATION: 'noreply@vigyanprep.com',
-  SUPPORT:      'support@vigyanprep.com'
+  PAYMENT:      { email: 'payment@vigyanprep.com', name: 'Vigyan.prep Billing' },
+  NOTIFICATION: { email: 'noreply@vigyanprep.com', name: 'Vigyan.prep' },
+  SUPPORT:      { email: 'support@vigyanprep.com', name: 'Vigyan.prep Support' }
 };
 
-const BRAND_NAME = 'VIGYAN.prep';
-
-let sesClient = null;
-
-try {
-  // AWS SDK auto-discovers credentials from env vars, IAM roles, or shared config
-  sesClient = new SESClient({ region: AWS_REGION });
-  console.log(`✅ AWS SES client initialized (region: ${AWS_REGION})`);
-} catch (err) {
-  console.warn('⚠️ AWS SES client initialization failed:', err.message);
-}
-
 /**
- * Send an email via AWS SES
+ * Send an email via Brevo REST API
  * @param {string} to - Recipient email
  * @param {string} subject - Email subject
  * @param {string} htmlBody - HTML email body
@@ -31,32 +19,42 @@ try {
  * @returns {Promise<{success: boolean, messageId?: string, error?: string}>}
  */
 export async function sendEmail(to, subject, htmlBody, options = {}) {
-  if (!sesClient) {
-    console.warn('⚠️ SES client not available, skipping email to:', to);
-    return { success: false, error: 'SES client not initialized' };
+  if (!BREVO_API_KEY) {
+    console.warn('⚠️ BREVO_API_KEY is not set in environment variables');
+    return { success: false, error: 'BREVO_API_KEY not configured' };
   }
 
-  const fromEmail = options.from || EMAIL_FROM.NOTIFICATION;
-  const replyTo = options.replyTo || EMAIL_FROM.SUPPORT;
+  const sender = options.from ? { email: options.from, name: 'Vigyan.prep' } : EMAIL_FROM.NOTIFICATION;
+  const replyTo = options.replyTo ? { email: options.replyTo } : EMAIL_FROM.SUPPORT;
 
   try {
-    const params = {
-      Source: `${BRAND_NAME} <${fromEmail}>`,
-      Destination: { ToAddresses: [to] },
-      ReplyToAddresses: [replyTo],
-      Message: {
-        Subject: { Data: subject, Charset: 'UTF-8' },
-        Body: {
-          Html: { Data: htmlBody, Charset: 'UTF-8' },
-          ...(options.textBody ? { Text: { Data: options.textBody, Charset: 'UTF-8' } } : {})
-        }
-      }
+    const payload = {
+      sender,
+      to: [{ email: to }],
+      replyTo,
+      subject,
+      htmlContent: htmlBody,
+      ...(options.textBody ? { textContent: options.textBody } : {})
     };
 
-    const command = new SendEmailCommand(params);
-    const result = await sesClient.send(command);
-    console.log(`📧 [${fromEmail}] Email sent to ${to}: ${subject} (MessageId: ${result.MessageId})`);
-    return { success: true, messageId: result.MessageId };
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'accept': 'application/json',
+        'api-key': BREVO_API_KEY,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.message || 'Failed to send email via Brevo');
+    }
+
+    console.log(`📧 [${sender.email}] Email sent to ${to}: ${subject} (MessageId: ${data.messageId})`);
+    return { success: true, messageId: data.messageId };
   } catch (err) {
     console.error(`❌ Email send failed to ${to}:`, err.message);
     return { success: false, error: err.message };
@@ -75,10 +73,10 @@ export async function sendBulkEmail(recipients, subject, htmlBody, options = {})
   for (const email of recipients) {
     const result = await sendEmail(email, subject, htmlBody, options);
     results.push({ email, ...result });
-    // Small delay to avoid SES rate limits
     await new Promise(r => setTimeout(r, 100));
   }
   return results;
 }
 
 export default { sendEmail, sendBulkEmail, EMAIL_FROM };
+
