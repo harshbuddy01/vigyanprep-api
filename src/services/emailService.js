@@ -22,8 +22,19 @@ export async function sendEmail(to, subject, htmlBody, options = {}) {
     return { success: false, error: 'BREVO_API_KEY not configured' };
   }
 
-  const sender = options.from ? { email: options.from, name: 'Vigyan.prep' } : EMAIL_FROM.NOTIFICATION;
-  const replyTo = options.replyTo ? { email: options.replyTo } : EMAIL_FROM.SUPPORT;
+  // Handle options.from as string ('email@x.com') or object ({email, name}) or EMAIL_FROM constant
+  let sender = EMAIL_FROM.NOTIFICATION;
+  if (options.from) {
+    sender = typeof options.from === 'string'
+      ? { email: options.from, name: 'Vigyan.prep' }
+      : options.from;
+  }
+  let replyTo = EMAIL_FROM.SUPPORT;
+  if (options.replyTo) {
+    replyTo = typeof options.replyTo === 'string'
+      ? { email: options.replyTo }
+      : options.replyTo;
+  }
 
   try {
     const payload = {
