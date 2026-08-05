@@ -1,6 +1,4 @@
 // 📧 Vigyan.prep Email Service (Powered by Brevo)
-import fetch from 'node-fetch';
-
 const BREVO_API_KEY = process.env.BREVO_API_KEY;
 
 // Dedicated sender addresses
