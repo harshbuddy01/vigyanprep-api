@@ -122,14 +122,21 @@ router.get('/dashboard', async (req, res) => {
       testsQuery = testsQuery.in('exam_type', subscribedExamTypes);
     }
 
-    const { data: tests } = await testsQuery;
+    const { data: rawTests } = await testsQuery;
+
+    const tests = (rawTests || []).map(t => ({
+      ...t,
+      title: t.name,
+      examType: t.exam_type,
+      year: t.pyq_year ? String(t.pyq_year) : null
+    }));
 
     // 4. Separate upcoming vs live tests
     const now = new Date();
-    const upcomingTests = (tests || []).filter(t =>
+    const upcomingTests = tests.filter(t =>
       t.window_start && new Date(t.window_start) > now
     );
-    const liveTests = (tests || []).filter(t => {
+    const liveTests = tests.filter(t => {
       if (!t.window_start) return false;
       const start = new Date(t.window_start);
       const end = t.window_end ? new Date(t.window_end) : null;
@@ -142,7 +149,7 @@ router.get('/dashboard', async (req, res) => {
       subscribedExamTypes,
       upcomingTests,
       liveTests,
-      totalTests: (tests || []).length
+      totalTests: tests.length
     });
   } catch (error) {
     console.error('❌ Student dashboard error:', error);
@@ -161,7 +168,7 @@ router.get('/hall-tickets', async (req, res) => {
 
     const { data: hallTickets, error } = await supabase
       .from('hall_tickets')
-      .select('id, test_id, unique_exam_id, issued_at, delivered_email, tests:test_id(id, title, name, exam_type, test_type, window_start, window_end, duration_minutes, status)')
+      .select('id, test_id, unique_exam_id, issued_at, delivered_email, tests:test_id(id, name, exam_type, window_start, window_end, duration_minutes, status)')
       .eq('student_id', studentId)
       .order('issued_at', { ascending: false });
 
@@ -170,10 +177,18 @@ router.get('/hall-tickets', async (req, res) => {
       return res.status(500).json({ success: false, error: error.message });
     }
 
-    const enrichedTickets = (hallTickets || []).map(ticket => ({
-      ...ticket,
-      test: ticket.tests || null
-    }));
+    const enrichedTickets = (hallTickets || []).map(ticket => {
+      const rawTest = ticket.tests || {};
+      return {
+        ...ticket,
+        test: ticket.tests ? {
+          ...rawTest,
+          title: rawTest.name,
+          exam_type: rawTest.exam_type,
+          test_type: rawTest.exam_type
+        } : null
+      };
+    });
 
     return res.status(200).json({
       success: true,
