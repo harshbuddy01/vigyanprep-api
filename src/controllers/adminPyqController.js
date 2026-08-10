@@ -233,7 +233,8 @@ export const approveAndPublishPyq = async (req, res) => {
         description: `${title} — Official PYQ Paper`,
         duration_minutes: durationMinutes || 180,
         is_active: true,
-        is_published: true
+        is_published: true,
+        status: 'ongoing'
       })
       .select()
       .single();
