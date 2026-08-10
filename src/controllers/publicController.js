@@ -5,11 +5,12 @@ export const getPublicPyqs = async (req, res) => {
     const { data, error } = await supabase
       .from('tests')
       .select('id, title, exam_type, examType, pyq_year, year, duration_minutes, questions_count, total_marks, status, window_start, window_end, content_type, created_at')
+      .neq('content_type', 'test_series')
+      .or('status.neq.draft,status.is.null')
       .order('created_at', { ascending: false });
 
     if (error) throw error;
-    const pyqPapers = (data || []).filter(t => t.content_type !== 'test_series');
-    return res.status(200).json({ success: true, papers: pyqPapers });
+    return res.status(200).json({ success: true, papers: data || [] });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to fetch PYQs', details: err.message });
   }
@@ -21,7 +22,7 @@ export const getPublicTests = async (req, res) => {
       .from('tests')
       .select('id, title, exam_type, examType, pyq_year, year, duration_minutes, questions_count, total_marks, status, window_start, window_end, content_type, created_at')
       .eq('content_type', 'test_series')
-      .neq('status', 'draft')
+      .or('status.neq.draft,status.is.null')
       .order('window_start', { ascending: false });
 
     if (error) throw error;

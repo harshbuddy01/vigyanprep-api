@@ -26,7 +26,7 @@ router.get('/subscriptions', async (req, res) => {
     const isUUID = (str) => /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(str);
 
     if (studentId && isUUID(studentId) && studentEmail) {
-      query = query.or(`student_id.eq.${studentId},student_email.ilike.${studentEmail.trim()}`);
+      query = query.or(`student_id.eq.${studentId},student_email.ilike."${studentEmail.trim()}"`);
     } else if (studentId && isUUID(studentId)) {
       query = query.eq('student_id', studentId);
     } else if (studentEmail) {
@@ -91,10 +91,14 @@ router.get('/dashboard', async (req, res) => {
       .select('*, plans:plan_id(id, name, exam_type, duration_days)')
       .eq('status', 'active');
 
-    if (studentId) {
+    const isUUID = (str) => /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(str);
+
+    if (studentId && isUUID(studentId) && studentEmail) {
+      subQuery = subQuery.or(`student_id.eq.${studentId},student_email.ilike."${studentEmail.trim()}"`);
+    } else if (studentId && isUUID(studentId)) {
       subQuery = subQuery.eq('student_id', studentId);
     } else if (studentEmail) {
-      subQuery = subQuery.eq('student_email', studentEmail);
+      subQuery = subQuery.eq('student_email', studentEmail.trim());
     }
 
     const { data: subscriptions } = await subQuery;
