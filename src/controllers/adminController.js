@@ -94,9 +94,14 @@ export const updateTestStatus = async (req, res) => {
 export const deleteTest = async (req, res) => {
   try {
     const { testId } = req.params;
-    await supabase.from('tests').delete().eq('id', testId);
+    const { error } = await supabase.from('tests').delete().eq('id', testId);
+    if (error) {
+      console.error('❌ Error deleting test from DB:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
     return res.status(200).json({ success: true });
   } catch (err) {
+    console.error('❌ deleteTest unhandled error:', err);
     return res.status(500).json({ success: false, error: err.message });
   }
 };
