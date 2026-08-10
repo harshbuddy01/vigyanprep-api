@@ -88,7 +88,7 @@ router.get('/dashboard', async (req, res) => {
     // 1. Get active subscriptions
     let subQuery = supabase
       .from('subscriptions')
-      .select('*, plans:plan_id(id, name, exam_type, duration_days)')
+      .select('*')
       .eq('status', 'active');
 
     const isUUID = (str) => /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(str);
@@ -101,7 +101,25 @@ router.get('/dashboard', async (req, res) => {
       subQuery = subQuery.eq('student_email', studentEmail.trim());
     }
 
-    const { data: subscriptions } = await subQuery;
+    const { data: rawSubscriptions, error: subError } = await subQuery;
+    if (subError) throw subError;
+
+    // Fetch plan details in a separate query to bypass the missing foreign key constraint
+    const planIds = [...new Set((rawSubscriptions || []).map(s => s.plan_id).filter(Boolean))];
+    let plansMap = {};
+    if (planIds.length > 0) {
+      const { data: plansData } = await supabase.from('plans').select('*').in('id', planIds);
+      (plansData || []).forEach(p => { plansMap[p.id] = p; });
+    }
+
+    const subscriptions = (rawSubscriptions || []).map(sub => ({
+      ...sub,
+      plans: plansMap[sub.plan_id] || {
+        name: sub.plan_name || 'Test Series Pass',
+        exam_type: sub.exam_type || 'IAT',
+        duration_days: sub.duration_days || 30
+      }
+    }));
 
     // 2. Get subscribed exam types
     const subscribedExamTypes = [...new Set(
