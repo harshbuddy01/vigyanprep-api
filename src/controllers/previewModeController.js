@@ -40,21 +40,30 @@ export const submitPreviewAttempt = async (req, res) => {
       }
     });
 
-    // Record preview run
-    const { data: run, error: runErr } = await supabase
-      .from('preview_runs')
-      .insert({
-        test_id: testId,
-        admin_id: adminId || '00000000-0000-0000-0000-000000000001',
-        score,
-        total_questions: (questions || []).length,
-        correct_count: correctCount,
-        submitted_at: new Date().toISOString()
-      })
-      .select()
-      .single();
+    // Record preview run (resilient: log warning if table is missing)
+    let run = null;
+    try {
+      const { data, error: runErr } = await supabase
+        .from('preview_runs')
+        .insert({
+          test_id: testId,
+          admin_id: adminId || '00000000-0000-0000-0000-000000000001',
+          score,
+          total_questions: (questions || []).length,
+          correct_count: correctCount,
+          submitted_at: new Date().toISOString()
+        })
+        .select()
+        .single();
 
-    if (runErr) throw runErr;
+      if (runErr) {
+        console.warn('⚠️ Could not save to preview_runs table:', runErr.message);
+      } else {
+        run = data;
+      }
+    } catch (err) {
+      console.warn('⚠️ Exception saving to preview_runs table:', err.message);
+    }
 
     // ✅ Set test preview status to valid
     await supabase.from('tests').update({ preview_status: 'valid' }).eq('id', testId);
