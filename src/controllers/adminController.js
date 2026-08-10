@@ -55,7 +55,7 @@ export const createScheduledTest = async (req, res) => {
     const { data: test, error } = await supabase
       .from('tests')
       .insert({
-        name: name || title || 'New Test Paper',
+        title: title || name || 'New Test Paper',
         exam_type: exam_type || 'IAT',
         duration_minutes: duration_minutes || 180,
         status: 'draft'
