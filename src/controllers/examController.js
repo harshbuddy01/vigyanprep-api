@@ -158,8 +158,8 @@ export const submitExam = async (req, res) => {
           .upsert({
             attempt_id: attemptId,
             question_id: questionId,
-            selected_answer: String(answer),
-            updated_at: new Date().toISOString()
+            answer: String(answer),
+            answered_at: new Date().toISOString()
           }, { onConflict: 'attempt_id,question_id' });
       }
     }
