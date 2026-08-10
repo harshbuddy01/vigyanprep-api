@@ -2,6 +2,7 @@
 // 🔒 PRODUCTION-GRADE JWT & SUPABASE MULTI-TENANT AUTHENTICATION
 
 import jwt from 'jsonwebtoken';
+import { supabase } from '../db/supabase.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'vigyanprep_secret_key_2026';
 const JWT_EXPIRES_IN = '7d';
@@ -57,23 +58,50 @@ export async function verifyAuth(req, res, next) {
       });
     }
 
-    let decoded;
+    let decoded = null;
+    let isSupabaseUser = false;
+    let supabaseUser = null;
+
     try {
       decoded = jwt.verify(token, JWT_SECRET);
     } catch (jwtErr) {
-      return res.status(401).json({
-        success: false,
-        error: jwtErr.name === 'TokenExpiredError' ? 'Session expired' : 'Invalid token',
-        code: jwtErr.name === 'TokenExpiredError' ? 'TOKEN_EXPIRED' : 'INVALID_TOKEN'
-      });
+      // Fallback: Verify using Supabase auth client (for client-side logged-in students)
+      try {
+        const { data: { user }, error: sbErr } = await supabase.auth.getUser(token);
+        if (user && !sbErr) {
+          isSupabaseUser = true;
+          supabaseUser = user;
+        } else {
+          console.warn('⚠️ Supabase token verification failed:', sbErr?.message || 'No user returned');
+        }
+      } catch (sbCatchErr) {
+        console.warn('⚠️ Supabase token validation caught error:', sbCatchErr.message);
+      }
+
+      if (!isSupabaseUser) {
+        return res.status(401).json({
+          success: false,
+          error: jwtErr.name === 'TokenExpiredError' ? 'Session expired' : 'Invalid token',
+          code: jwtErr.name === 'TokenExpiredError' ? 'TOKEN_EXPIRED' : 'INVALID_TOKEN'
+        });
+      }
     }
 
-    req.user = {
-      id: decoded.id,
-      email: decoded.email,
-      role: decoded.role,
-      org_id: decoded.org_id
-    };
+    if (isSupabaseUser && supabaseUser) {
+      req.user = {
+        id: supabaseUser.id,
+        email: supabaseUser.email?.toLowerCase().trim(),
+        role: supabaseUser.user_metadata?.role || 'student',
+        org_id: supabaseUser.user_metadata?.org_id || '00000000-0000-0000-0000-000000000001'
+      };
+    } else {
+      req.user = {
+        id: decoded.id,
+        email: decoded.email,
+        role: decoded.role,
+        org_id: decoded.org_id
+      };
+    }
 
     next();
   } catch (error) {
