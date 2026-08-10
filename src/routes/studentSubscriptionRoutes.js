@@ -168,7 +168,7 @@ router.get('/hall-tickets', async (req, res) => {
 
     const { data: hallTickets, error } = await supabase
       .from('hall_tickets')
-      .select('id, test_id, unique_exam_id, issued_at, delivered_email, tests:test_id(id, name, exam_type, window_start, window_end, duration_minutes, status)')
+      .select('id, test_id, unique_exam_id, issued_at, delivered_email, tests:test_id(id, title, exam_type, window_start, window_end, duration_minutes, status)')
       .eq('student_id', studentId)
       .order('issued_at', { ascending: false });
 
@@ -183,7 +183,8 @@ router.get('/hall-tickets', async (req, res) => {
         ...ticket,
         test: ticket.tests ? {
           ...rawTest,
-          title: rawTest.name,
+          name: rawTest.title,
+          title: rawTest.title,
           exam_type: rawTest.exam_type,
           test_type: rawTest.exam_type
         } : null

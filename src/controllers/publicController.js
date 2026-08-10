@@ -4,7 +4,7 @@ export const getPublicPyqs = async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('tests')
-      .select('id, name, exam_type, pyq_year, duration_minutes, status, window_start, window_end, content_type, created_at')
+      .select('id, title, exam_type, pyq_year, duration_minutes, status, window_start, window_end, content_type, created_at')
       .neq('content_type', 'test_series')
       .or('status.neq.draft,status.is.null')
       .order('created_at', { ascending: false });
@@ -13,7 +13,7 @@ export const getPublicPyqs = async (req, res) => {
 
     const mapped = (data || []).map(t => ({
       ...t,
-      title: t.name,
+      name: t.title,
       examType: t.exam_type,
       year: t.pyq_year ? String(t.pyq_year) : null
     }));
@@ -28,7 +28,7 @@ export const getPublicTests = async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('tests')
-      .select('id, name, exam_type, pyq_year, duration_minutes, status, window_start, window_end, content_type, created_at')
+      .select('id, title, exam_type, pyq_year, duration_minutes, status, window_start, window_end, content_type, created_at')
       .eq('content_type', 'test_series')
       .or('status.neq.draft,status.is.null')
       .order('window_start', { ascending: false });
@@ -37,7 +37,7 @@ export const getPublicTests = async (req, res) => {
 
     const mapped = (data || []).map(t => ({
       ...t,
-      title: t.name,
+      name: t.title,
       examType: t.exam_type,
       year: t.pyq_year ? String(t.pyq_year) : null
     }));
