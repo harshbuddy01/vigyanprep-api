@@ -7,6 +7,12 @@ const router = express.Router();
 // All routes require student authentication
 router.use(verifyAuth);
 
+// Disable browser cache for student routes to prevent showing stale cached data
+router.use((req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  next();
+});
+
 // GET /api/student/subscriptions — Returns the student's active subscriptions with plan details
 router.get('/subscriptions', async (req, res) => {
   try {
@@ -30,13 +36,13 @@ router.get('/subscriptions', async (req, res) => {
     } else if (studentId && isUUID(studentId)) {
       query = query.eq('student_id', studentId);
     } else if (studentEmail) {
-      query = query.ilike('student_email', studentEmail.trim());
+      query = query.eq('student_email', studentEmail.trim());
     }
 
     const { data: subscriptions, error } = await query;
 
     if (error) {
-      console.error('❌ Subscription fetch error:', error);
+      console.error('❌ Subscriptions fetch error:', error);
       return res.status(500).json({ success: false, error: error.message });
     }
 
@@ -48,33 +54,34 @@ router.get('/subscriptions', async (req, res) => {
       (plansData || []).forEach(p => { plansMap[p.id] = p; });
     }
 
-    // Auto-expire subscriptions that have passed their expiry date
-    const now = new Date();
-    const enrichedSubs = (subscriptions || []).map(sub => {
-      const isExpired = sub.expires_at && new Date(sub.expires_at) < now;
-      if (isExpired && sub.status === 'active') {
-        // Mark as expired in DB (fire-and-forget)
-        supabase.from('subscriptions').update({ status: 'expired' }).eq('id', sub.id).then(() => {});
-      }
-      return {
-        ...sub,
-        status: isExpired ? 'expired' : sub.status,
-        plan: plansMap[sub.plan_id] || sub.plans || {
-          name: sub.plan_name || 'Test Series Pass',
-          exam_type: sub.exam_type || 'IAT',
-          duration_days: sub.duration_days || 30
-        },
-        days_remaining: isExpired ? 0 : Math.max(0, Math.ceil((new Date(sub.expires_at) - now) / (1000 * 60 * 60 * 24)))
-      };
-    });
+    // 3. Enriched active subscriptions
+    const activeSubscriptions = (subscriptions || [])
+      .filter(sub => sub.status === 'active')
+      .map(sub => {
+        const expiresAt = new Date(sub.expires_at);
+        const now = new Date();
+        const diffTime = expiresAt.getTime() - now.getTime();
+        const daysRemaining = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+
+        return {
+          ...sub,
+          plan: plansMap[sub.plan_id] || {
+            id: sub.plan_id,
+            name: sub.plan_name || 'Test Series Pass',
+            exam_type: sub.exam_type || 'IAT',
+            duration_days: sub.duration_days || 30
+          },
+          days_remaining: daysRemaining
+        };
+      });
 
     return res.status(200).json({
       success: true,
-      subscriptions: enrichedSubs,
-      activeCount: enrichedSubs.filter(s => s.status === 'active').length
+      subscriptions: activeSubscriptions,
+      activeCount: activeSubscriptions.length
     });
   } catch (error) {
-    console.error('❌ Student subscriptions error:', error);
+    console.error('❌ Subscriptions route error:', error);
     return res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -144,7 +151,7 @@ router.get('/dashboard', async (req, res) => {
 
     const tests = (rawTests || []).map(t => ({
       ...t,
-      title: t.name,
+      title: t.name || t.title,
       examType: t.exam_type,
       year: t.pyq_year ? String(t.pyq_year) : null
     }));
@@ -186,7 +193,7 @@ router.get('/hall-tickets', async (req, res) => {
 
     const { data: hallTickets, error } = await supabase
       .from('hall_tickets')
-      .select('id, test_id, unique_exam_id, issued_at, delivered_email, tests:test_id(id, title, exam_type, window_start, window_end, duration_minutes, status)')
+      .select('*')
       .eq('student_id', studentId)
       .order('issued_at', { ascending: false });
 
@@ -195,17 +202,50 @@ router.get('/hall-tickets', async (req, res) => {
       return res.status(500).json({ success: false, error: error.message });
     }
 
+    // Fetch test details in separate queries to bypass missing foreign key constraint
+    const testIds = [...new Set((hallTickets || []).map(t => t.test_id).filter(Boolean))];
+    let testsMap = {};
+    if (testIds.length > 0) {
+      // 1. Query 'tests' table
+      const { data: testsData } = await supabase.from('tests').select('*').in('id', testIds);
+      (testsData || []).forEach(t => {
+        testsMap[t.id] = {
+          id: t.id,
+          title: t.title,
+          name: t.title,
+          exam_type: t.exam_type,
+          test_type: t.exam_type,
+          window_start: t.window_start,
+          window_end: t.window_end,
+          duration_minutes: t.duration_minutes,
+          status: t.status
+        };
+      });
+
+      // 2. Query 'scheduled_tests' table for any other tests
+      const remainingTestIds = testIds.filter(id => !testsMap[id]);
+      if (remainingTestIds.length > 0) {
+        const { data: schedData } = await supabase.from('scheduled_tests').select('*').in('id', remainingTestIds);
+        (schedData || []).forEach(t => {
+          testsMap[t.id] = {
+            id: t.id,
+            title: t.test_name,
+            name: t.test_name,
+            exam_type: t.test_type,
+            test_type: t.test_type,
+            window_start: t.exam_date,
+            window_end: t.exam_date,
+            duration_minutes: t.duration_minutes,
+            status: t.status
+          };
+        });
+      }
+    }
+
     const enrichedTickets = (hallTickets || []).map(ticket => {
-      const rawTest = ticket.tests || {};
       return {
         ...ticket,
-        test: ticket.tests ? {
-          ...rawTest,
-          name: rawTest.title,
-          title: rawTest.title,
-          exam_type: rawTest.exam_type,
-          test_type: rawTest.exam_type
-        } : null
+        test: testsMap[ticket.test_id] || null
       };
     });
 
