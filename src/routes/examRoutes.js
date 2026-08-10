@@ -68,4 +68,40 @@ router.get('/my-tests', verifyAuth, (req, res) => {
   });
 });
 
+// 🔒 C2 FIX: Server-side passcode validation (replaces client-side check)
+router.post('/validate-passcode', async (req, res) => {
+  try {
+    const { testId, passcode } = req.body;
+    if (!testId || !passcode) {
+      return res.status(400).json({ success: false, error: 'testId and passcode are required' });
+    }
+
+    // Import supabase
+    const { supabase } = await import('../db/supabase.js');
+
+    const { data: test, error } = await supabase
+      .from('tests')
+      .select('id, passcode, access_code, title')
+      .eq('id', testId)
+      .single();
+
+    if (error || !test) {
+      return res.status(404).json({ success: false, error: 'Test not found' });
+    }
+
+    const expectedCode = test.passcode || test.access_code;
+    if (!expectedCode) {
+      return res.status(403).json({ success: false, error: 'This test requires a passcode but none is configured. Contact admin.' });
+    }
+
+    if (passcode.trim() !== expectedCode.trim()) {
+      return res.status(401).json({ success: false, error: 'Invalid passcode' });
+    }
+
+    return res.json({ success: true, message: 'Passcode verified', testTitle: test.title });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 export default router;

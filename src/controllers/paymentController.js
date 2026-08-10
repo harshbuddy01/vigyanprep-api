@@ -70,6 +70,19 @@ export async function verifyPayment(req, res) {
       razorpay_order_id, razorpay_payment_id, razorpay_signature,
       planId, amount, studentEmail, studentName
     } = req.body;
+
+    // Verify signature
+    const expectedSignature = crypto
+      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_API_SECRET || '')
+      .update(razorpay_order_id + '|' + razorpay_payment_id)
+      .digest('hex');
+
+    if (expectedSignature !== razorpay_signature) {
+      console.error('❌ Razorpay signature mismatch! Possible fraud attempt.');
+      return res.status(400).json({ success: false, error: 'Payment verification failed: invalid signature' });
+    }
+    console.log('✅ Razorpay signature verified');
+
     let finalStudentEmail = studentEmail || req.body?.email;
     let finalStudentName = studentName || req.body?.name;
 

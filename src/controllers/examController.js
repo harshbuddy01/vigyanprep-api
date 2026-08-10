@@ -149,11 +149,26 @@ export const submitExam = async (req, res) => {
       return res.status(400).json({ success: false, message: 'attemptId is required' });
     }
 
+    // Save individual answers to attempt_answers table (if answers provided)
+    if (answers && typeof answers === 'object') {
+      const answerEntries = Object.entries(answers);
+      for (const [questionId, answer] of answerEntries) {
+        await supabase
+          .from('attempt_answers')
+          .upsert({
+            attempt_id: attemptId,
+            question_id: questionId,
+            selected_answer: String(answer),
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'attempt_id,question_id' });
+      }
+    }
+
+    // Update attempt status only (no answers column — it doesn't exist in the schema)
     const { data: attempt, error: attErr } = await supabase
       .from('attempts')
       .update({
         status: 'submitted',
-        answers: answers || {},
         submitted_at: new Date().toISOString(),
         submit_reason: 'manual'
       })
@@ -169,6 +184,7 @@ export const submitExam = async (req, res) => {
       attempt
     });
   } catch (err) {
+    console.error('❌ submitExam error:', err);
     return res.status(500).json({ success: false, message: 'Error submitting exam' });
   }
 };

@@ -86,8 +86,38 @@ export const addQuestionsToTest = async (req, res) => {
 
 export const removeQuestionsFromTest = async (req, res) => {
   try {
-    return res.status(200).json({ success: true });
+    const { testId, questionId } = req.params;
+    
+    // Delete the question
+    const { error } = await supabase
+      .from('questions')
+      .delete()
+      .eq('id', questionId)
+      .eq('test_id', testId);
+    
+    if (error) throw error;
+    
+    // Renumber remaining questions
+    const { data: remaining } = await supabase
+      .from('questions')
+      .select('id, question_number')
+      .eq('test_id', testId)
+      .order('question_number', { ascending: true });
+    
+    if (remaining && remaining.length > 0) {
+      for (let i = 0; i < remaining.length; i++) {
+        if (remaining[i].question_number !== i + 1) {
+          await supabase
+            .from('questions')
+            .update({ question_number: i + 1 })
+            .eq('id', remaining[i].id);
+        }
+      }
+    }
+    
+    return res.json({ success: true, message: 'Question deleted and renumbered' });
   } catch (err) {
+    console.error('❌ Error removing question:', err);
     return res.status(500).json({ success: false, error: err.message });
   }
 };

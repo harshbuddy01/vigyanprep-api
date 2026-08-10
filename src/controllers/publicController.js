@@ -4,7 +4,7 @@ export const getPublicPyqs = async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('tests')
-      .select('*')
+      .select('id, title, exam_type, examType, pyq_year, year, duration_minutes, questions_count, total_marks, status, window_start, window_end, content_type, created_at')
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -19,7 +19,7 @@ export const getPublicTests = async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('tests')
-      .select('*')
+      .select('id, title, exam_type, examType, pyq_year, year, duration_minutes, questions_count, total_marks, status, window_start, window_end, content_type, created_at')
       .eq('content_type', 'test_series')
       .in('status', ['frozen', 'live', 'closed'])
       .order('window_start', { ascending: false });
