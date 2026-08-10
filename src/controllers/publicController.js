@@ -21,7 +21,7 @@ export const getPublicTests = async (req, res) => {
       .from('tests')
       .select('id, title, exam_type, examType, pyq_year, year, duration_minutes, questions_count, total_marks, status, window_start, window_end, content_type, created_at')
       .eq('content_type', 'test_series')
-      .in('status', ['frozen', 'live', 'closed'])
+      .neq('status', 'draft')
       .order('window_start', { ascending: false });
 
     if (error) throw error;
