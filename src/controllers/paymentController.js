@@ -150,16 +150,21 @@ export async function verifyPayment(req, res) {
     // Fallback ID if no student ID could be resolved
     const finalStudentId = resolvedStudentId || '00000000-0000-0000-0000-000000000001';
 
-    // 2. Look up plan details from database
+    // 2. Look up plan details from database (including bundle_includes for multi-series plans)
     let planName = '';
     let examType = '';
     let durationDays = 30;
+    let bundleIncludes = null;
     if (planId) {
       const { data: plan } = await supabase.from('plans').select('*').eq('id', planId).single();
       if (plan) {
         planName = plan.name || '';
         examType = plan.exam_type || '';
         durationDays = plan.duration_days || 30;
+        // For bundle plans, store the array of included exam types
+        if (plan.exam_type === 'BUNDLE' && Array.isArray(plan.bundle_includes) && plan.bundle_includes.length > 0) {
+          bundleIncludes = plan.bundle_includes;
+        }
       }
     }
 
@@ -200,7 +205,9 @@ export async function verifyPayment(req, res) {
         student_name: finalStudentName || null,
         amount_paid: amount || 999,
         razorpay_payment_id: razorpay_payment_id || null,
-        razorpay_order_id: razorpay_order_id || null
+        razorpay_order_id: razorpay_order_id || null,
+        // For bundle plans: store which exam types this subscription covers
+        bundle_includes: bundleIncludes || null
       };
 
       const { data: sub, error: subError } = await supabase
