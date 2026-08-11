@@ -93,7 +93,12 @@ export const getPublicTestDetails = async (req, res) => {
         id: test.id,
         title: test.title || test.name,
         examType: test.exam_type || test.test_type || 'IAT',
+        exam_type: test.exam_type || test.test_type || 'IAT',
+        pyq_year: test.pyq_year || test.year || null,
+        year: test.pyq_year || test.year || null,
         duration_minutes: test.duration_minutes || 180,
+        questions_count: test.questions_count || (sanitizedQuestions ? sanitizedQuestions.length : 60),
+        total_marks: test.total_marks || (sanitizedQuestions ? sanitizedQuestions.length * 4 : 240),
         window_start: test.window_start,
         window_end: test.window_end
       },
