@@ -108,3 +108,27 @@ export const getPublicTestDetails = async (req, res) => {
     return res.status(500).json({ error: 'Failed to fetch test details', details: err.message });
   }
 };
+
+let globalSettings = {
+  maintenanceMode: false,
+  siteName: "VIGYAN.PREP",
+  supportEmail: "support@vigyanprep.com"
+};
+
+export const getPublicSettings = async (req, res) => {
+  return res.status(200).json({ success: true, settings: globalSettings });
+};
+
+export const updatePublicSettings = async (req, res) => {
+  try {
+    const { maintenanceMode, siteName, supportEmail } = req.body;
+    if (typeof maintenanceMode === 'boolean') {
+      globalSettings.maintenanceMode = maintenanceMode;
+    }
+    if (siteName) globalSettings.siteName = siteName;
+    if (supportEmail) globalSettings.supportEmail = supportEmail;
+    return res.status(200).json({ success: true, settings: globalSettings });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to update settings', details: err.message });
+  }
+};
