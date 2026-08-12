@@ -2,16 +2,26 @@ import { supabase } from '../db/supabase.js';
 
 export const getPublicPyqs = async (req, res) => {
   try {
+    // Fetch ALL tests that are not explicitly test_series content
+    // Include: content_type='pyq', content_type=null, and any other non-test_series
+    // Exclude: status='draft' (only show published/ongoing/null status)
     const { data, error } = await supabase
       .from('tests')
-      .select('id, title, exam_type, pyq_year, duration_minutes, status, window_start, window_end, content_type, created_at')
-      .neq('content_type', 'test_series')
-      .or('status.neq.draft,status.is.null')
+      .select('id, title, exam_type, pyq_year, duration_minutes, status, window_start, window_end, content_type, total_questions, created_at')
       .order('created_at', { ascending: false });
 
     if (error) throw error;
 
-    const mapped = (data || []).map(t => ({
+    // Filter in JS for more reliable logic (Supabase OR filters can be tricky with nulls)
+    const filtered = (data || []).filter(t => {
+      // Exclude test_series content
+      if (t.content_type === 'test_series') return false;
+      // Exclude drafts
+      if (t.status === 'draft') return false;
+      return true;
+    });
+
+    const mapped = filtered.map(t => ({
       ...t,
       name: t.title,
       examType: t.exam_type,

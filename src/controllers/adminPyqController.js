@@ -342,6 +342,13 @@ export const updateQuestion = async (req, res) => {
     if (updates.image_url !== undefined || updates.imageUrl !== undefined) {
       updatePayload.image_url = updates.image_url || updates.imageUrl || null;
     }
+    if (updates.question_number !== undefined) {
+      updatePayload.question_number = updates.question_number;
+    }
+    if (updates.type !== undefined) {
+      updatePayload.type = updates.type;
+      updatePayload.question_type = updates.type;
+    }
 
     if (Object.keys(updatePayload).length === 0) {
       return res.status(400).json({ error: 'No fields to update' });
@@ -370,16 +377,35 @@ export const updateQuestion = async (req, res) => {
 export const deleteQuestion = async (req, res) => {
   try {
     const { id } = req.params;
-    const { data: existingQ } = await supabase.from('questions').select('test_id').eq('id', id).single();
+    const { data: existingQ } = await supabase.from('questions').select('test_id, section').eq('id', id).single();
 
     const { error } = await supabase.from('questions').delete().eq('id', id);
     if (error) throw error;
 
-    if (existingQ?.test_id) {
+    // After deletion, renumber remaining questions in the SAME SECTION
+    if (existingQ?.test_id && existingQ?.section) {
+      const { data: remaining } = await supabase
+        .from('questions')
+        .select('id, question_number')
+        .eq('test_id', existingQ.test_id)
+        .eq('section', existingQ.section)
+        .order('question_number', { ascending: true });
+
+      if (remaining && remaining.length > 0) {
+        for (let i = 0; i < remaining.length; i++) {
+          if (remaining[i].question_number !== i + 1) {
+            await supabase
+              .from('questions')
+              .update({ question_number: i + 1 })
+              .eq('id', remaining[i].id);
+          }
+        }
+      }
+
       await invalidatePreviewStatus(existingQ.test_id);
     }
 
-    return res.status(200).json({ success: true, message: 'Question deleted' });
+    return res.status(200).json({ success: true, message: 'Question deleted and section renumbered' });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to delete question', details: err.message });
   }
