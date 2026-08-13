@@ -100,14 +100,15 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    database: 'Supabase PostgreSQL (Multi-Tenant RLS)',
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'production'
-  });
-});
+// Ensure static uploads directory exists
+const uploadsDir = path.join(__dirname, '../public/uploads/diagrams');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+app.use('/uploads', express.static(path.join(__dirname, '../public/uploads'), {
+  maxAge: '1y',
+  immutable: true
+}));
 
 // Public Endpoints
 app.use('/api/public', publicRoutes);

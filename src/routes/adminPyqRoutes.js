@@ -6,6 +6,7 @@ import {
   approveAndPublishPyq,
   publishPyq,
   unpublishPyq,
+  cropManualDiagram,
   getPyqList,
   getTestQuestions,
   updateQuestion,
@@ -29,5 +30,6 @@ router.put('/test/:id', updateTest);
 router.delete('/test/:id', deleteTest);
 router.post('/publish/:id', publishPyq);
 router.post('/unpublish/:id', unpublishPyq);
+router.post('/crop-manual', cropManualDiagram);
 
 export default router;

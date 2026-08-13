@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { supabase } from '../db/supabase.js';
 import { PDFParse } from 'pdf-parse';
 import { invalidatePreviewStatus } from './previewModeController.js';
@@ -479,5 +481,51 @@ export const unpublishPyq = async (req, res) => {
     return res.status(200).json({ success: true, test: data, message: 'Paper unpublished and hidden from students' });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to unpublish', details: err.message });
+  }
+};
+
+export const cropManualDiagram = async (req, res) => {
+  try {
+    const { base64Image } = req.body;
+    if (!base64Image) {
+      return res.status(400).json({ error: 'base64Image is required' });
+    }
+
+    const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    const uploadsDir = path.join(process.cwd(), 'public/uploads/diagrams');
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+
+    const fileName = `diagram_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.webp`;
+    const filePath = path.join(uploadsDir, fileName);
+
+    let sharp;
+    try {
+      sharp = (await import('sharp')).default;
+    } catch {
+      sharp = null;
+    }
+
+    if (sharp) {
+      await sharp(buffer).webp({ quality: 90 }).toFile(filePath);
+    } else {
+      fs.writeFileSync(filePath, buffer);
+    }
+
+    const host = process.env.API_BASE_URL || 'https://api.vigyanprep.com';
+    const imageUrl = `${host}/uploads/diagrams/${fileName}`;
+
+    return res.status(200).json({
+      success: true,
+      imageUrl,
+      fileName,
+      message: 'Diagram cropped and saved directly to server storage'
+    });
+  } catch (err) {
+    console.error('Failed to crop diagram:', err);
+    return res.status(500).json({ error: 'Failed to process crop', details: err.message });
   }
 };
