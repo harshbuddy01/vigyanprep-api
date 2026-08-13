@@ -13,10 +13,10 @@ async function extractTextFromBuffer(buffer) {
 
 function classifySubject(text) {
   const t = text.toLowerCase();
-  const biology = ['cell', 'dna', 'rna', 'gene', 'protein', 'enzyme', 'plant', 'animal', 'organism', 'species'];
-  const chemistry = ['reaction', 'acid', 'base', 'bond', 'mole', 'compound', 'organic', 'element', 'periodic'];
-  const maths = ['matrix', 'integral', 'derivative', 'differential', 'probability', 'vector', 'calculus'];
-  const physics = ['force', 'velocity', 'acceleration', 'mass', 'energy', 'power', 'momentum', 'electric'];
+  const physics = ['force', 'velocity', 'acceleration', 'mass', 'energy', 'power', 'momentum', 'electric', 'magnetic', 'field', 'wave', 'frequency', 'wavelength', 'optics', 'lens', 'mirror', 'circuit', 'resistance', 'current', 'voltage', 'capacitor', 'inductor', 'thermodynamics', 'entropy', 'heat', 'temperature', 'pressure', 'torque', 'angular', 'gravitational', 'potential', 'kinetic'];
+  const chemistry = ['reaction', 'acid', 'base', 'bond', 'mole', 'compound', 'organic', 'element', 'periodic', 'ion', 'cation', 'anion', 'oxidation', 'reduction', 'equilibrium', 'catalyst', 'polymer', 'isomer', 'electrode', 'electrolysis', 'solution', 'solvent', 'ph', 'titration', 'molar', 'enthalpy', 'entropy', 'molecular', 'atomic', 'valence'];
+  const maths = ['matrix', 'integral', 'derivative', 'differential', 'probability', 'vector', 'calculus', 'equation', 'polynomial', 'function', 'limit', 'series', 'sequence', 'determinant', 'eigenvalue', 'trigonometric', 'logarithm', 'exponential', 'algebra', 'geometry', 'theorem', 'proof', 'inequality', 'permutation', 'combination', 'statistics', 'mean', 'variance', 'graph', 'coordinate'];
+  const biology = ['cell', 'dna', 'rna', 'gene', 'protein', 'enzyme', 'plant', 'animal', 'organism', 'species', 'chromosome', 'mitosis', 'meiosis', 'mutation', 'evolution', 'photosynthesis', 'respiration', 'ecology', 'ecosystem', 'taxonomy', 'anatomy', 'physiology', 'hormone', 'neuron', 'immune', 'antibody', 'antigen', 'virus', 'bacteria', 'genetics'];
 
   let bioScore = biology.filter(k => t.includes(k)).length;
   let chemScore = chemistry.filter(k => t.includes(k)).length;
@@ -32,6 +32,7 @@ function classifySubject(text) {
 }
 
 function detectSectionHeader(line) {
+  if (line.split(/\s+/).length > 8) return null;
   const u = line.trim().toUpperCase();
   if (/\bPHYSICS\b/.test(u)) return 'Physics';
   if (/\bCHEMISTR/.test(u)) return 'Chemistry';
@@ -53,6 +54,7 @@ function parseQuestionsFromText(rawText) {
   const questions = [];
   let currentQ = null;
   let currentSection = 'Physics';
+  let sectionHeaderFound = false;
 
   const qPatterns = [
     /^(?:Q(?:uestion)?\.?\s*)(\d{1,3})[.):\s]/i,
@@ -76,8 +78,9 @@ function parseQuestionsFromText(rawText) {
 
   for (const line of lines) {
     const secHeader = detectSectionHeader(line);
-    if (secHeader && line.split(/\s+/).length <= 4) {
+    if (secHeader) {
       currentSection = secHeader;
+      sectionHeaderFound = true;
       continue;
     }
 
@@ -134,19 +137,21 @@ function parseQuestionsFromText(rawText) {
 
   pushCurrentQ();
 
-  questions.forEach((q, idx) => {
-    const keyword = classifySubject(q.question_text);
-    if (keyword) {
-      q.section = keyword;
-    } else {
-      const total = questions.length;
-      const quarter = Math.ceil(total / 4);
-      if (idx < quarter) q.section = 'Physics';
-      else if (idx < 2 * quarter) q.section = 'Chemistry';
-      else if (idx < 3 * quarter) q.section = 'Mathematics';
-      else q.section = 'Biology';
-    }
-  });
+  if (!sectionHeaderFound) {
+    questions.forEach((q, idx) => {
+      const keyword = classifySubject(q.question_text);
+      if (keyword) {
+        q.section = keyword;
+      } else {
+        const total = questions.length;
+        const quarter = Math.ceil(total / 4);
+        if (idx < quarter) q.section = 'Physics';
+        else if (idx < 2 * quarter) q.section = 'Chemistry';
+        else if (idx < 3 * quarter) q.section = 'Mathematics';
+        else q.section = 'Biology';
+      }
+    });
+  }
 
   return questions;
 }
@@ -197,10 +202,14 @@ export const uploadAndParsePdf = async (req, res) => {
       status: 'draft_review'
     }));
 
+    const sectionCounts = { Physics: 0, Chemistry: 0, Mathematics: 0, Biology: 0 };
+    mapped.forEach(q => { if (sectionCounts[q.section] !== undefined) sectionCounts[q.section]++; });
+
     return res.status(200).json({
       success: true,
       filename: req.file.originalname,
       totalQuestions: mapped.length,
+      sectionCounts,
       questions: mapped
     });
   } catch (err) {
@@ -233,8 +242,8 @@ export const approveAndPublishPyq = async (req, res) => {
         description: `${title} — Official PYQ Paper`,
         duration_minutes: durationMinutes || 180,
         is_active: true,
-        is_published: true,
-        status: 'ongoing'
+        is_published: false,
+        status: 'draft'
       })
       .select()
       .single();
@@ -438,5 +447,37 @@ export const deleteTest = async (req, res) => {
     return res.status(200).json({ success: true, message: 'Test paper and all questions deleted successfully' });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to delete test paper', details: err.message });
+  }
+};
+
+export const publishPyq = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { data, error } = await supabase
+      .from('tests')
+      .update({ status: 'ongoing', is_published: true, is_active: true })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return res.status(200).json({ success: true, test: data, message: 'Paper published and now visible to students' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to publish', details: err.message });
+  }
+};
+
+export const unpublishPyq = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { data, error } = await supabase
+      .from('tests')
+      .update({ status: 'draft', is_published: false, is_active: false })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return res.status(200).json({ success: true, test: data, message: 'Paper unpublished and hidden from students' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to unpublish', details: err.message });
   }
 };

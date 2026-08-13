@@ -4,6 +4,8 @@ import { verifyAdminAuth } from '../middlewares/adminAuth.js';
 import {
   uploadAndParsePdf,
   approveAndPublishPyq,
+  publishPyq,
+  unpublishPyq,
   getPyqList,
   getTestQuestions,
   updateQuestion,
@@ -25,5 +27,7 @@ router.put('/question/:id', updateQuestion);
 router.delete('/question/:id', deleteQuestion);
 router.put('/test/:id', updateTest);
 router.delete('/test/:id', deleteTest);
+router.post('/publish/:id', publishPyq);
+router.post('/unpublish/:id', unpublishPyq);
 
 export default router;
