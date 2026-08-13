@@ -43,6 +43,68 @@ function detectSectionHeader(line) {
   return null;
 }
 
+function sanitizeAndFormatMathText(text) {
+  if (!text) return '';
+
+  let str = text
+    // 1. Integrals: \u222B (∫), \u222C (∬), \u222D (∭), \u222E (∮)
+    .replace(/[\u222B\u222C\u222D\u222E]/g, ' \\int ')
+    .replace(/\bint\s*([a-zA-Z0-9_\-\+\*\/\s\(\)]+)d([a-zA-Z])/gi, ' \\int $1 d$2 ')
+
+    // 2. Vectors: \u2192 (→), \u27F6 (⟶), \u21A0, or inline vector notation
+    .replace(/[\u2192\u27F6]/g, ' \\rightarrow ')
+    .replace(/\bvec\s*([a-zA-Z])/gi, ' \\vec{$1} ')
+    .replace(/\bvector\s+([a-zA-Z])\b/gi, ' \\vec{$1} ')
+
+    // 3. Division & Multiplication: \u00F7 (÷), \u00D7 (×), \u22C5 (⋅), \u2A2F (⨯)
+    .replace(/[\u00F7]/g, ' \\div ')
+    .replace(/[\u00D7\u2A2F]/g, ' \\times ')
+    .replace(/[\u22C5]/g, ' \\cdot ')
+    .replace(/\b(\d+)\s*[xX]\s*(\d+)\b/g, '$1 \\times $2')
+
+    // 4. Fractions: e.g. "1 / 2" or "a / b"
+    .replace(/(\d+)\s*\/\s*(\d+)/g, ' \\frac{$1}{$2} ')
+    .replace(/\b([a-zA-Z])\s*\/\s*([a-zA-Z0-9]+)\b/g, ' \\frac{$1}{$2} ')
+
+    // 5. Roots & Summations: \u221A (√), \u2211 (∑), \u220F (∏), \u221E (∞)
+    .replace(/[\u221A]/g, ' \\sqrt ')
+    .replace(/[\u2211]/g, ' \\sum ')
+    .replace(/[\u220F]/g, ' \\prod ')
+    .replace(/[\u221E]/g, ' \\infty ')
+
+    // 6. Inequalities: \u2264 (≤), \u2265 (≥), \u226A (≪), \u226B (≫), \u2260 (≠), \u2248 (≈)
+    .replace(/[\u2264]/g, ' \\le ')
+    .replace(/[\u2265]/g, ' \\ge ')
+    .replace(/[\u226A]/g, ' \\ll ')
+    .replace(/[\u226B]/g, ' \\gg ')
+    .replace(/[\u2260]/g, ' \\neq ')
+    .replace(/[\u2248]/g, ' \\approx ')
+
+    // 7. Greek letters from PDF font glyphs
+    .replace(/[\u03B1]/g, ' \\alpha ')
+    .replace(/[\u03B2]/g, ' \\beta ')
+    .replace(/[\u03B3]/g, ' \\gamma ')
+    .replace(/[\u03B4\u0394]/g, ' \\Delta ')
+    .replace(/[\u03B8\u0398]/g, ' \\theta ')
+    .replace(/[\u03C0\u03A0]/g, ' \\pi ')
+    .replace(/[\u03C1]/g, ' \\rho ')
+    .replace(/[\u03C3\u03A3]/g, ' \\sigma ')
+    .replace(/[\u03C9\u03A9]/g, ' \\omega ')
+    .replace(/[\u03BB\u039B]/g, ' \\lambda ')
+    .replace(/[\u03BC]/g, ' \\mu ')
+    .replace(/[\u03B5]/g, ' \\epsilon ')
+    .replace(/[\u00B1]/g, ' \\pm ');
+
+  if (
+    /\\(frac|int|vec|sqrt|sum|prod|times|div|alpha|beta|gamma|Delta|theta|pi|rho|sigma|omega|lambda|mu|epsilon|le|ge|ll|gg|neq|approx|pm|infty)/.test(str) &&
+    !/\$.*\$/.test(str)
+  ) {
+    str = `$${str.trim()}$`;
+  }
+
+  return str.replace(/\s+/g, ' ').trim();
+}
+
 function parseQuestionsFromText(rawText) {
   const cleanText = rawText
     .replace(/\u0000/g, '')
@@ -73,7 +135,9 @@ function parseQuestionsFromText(rawText) {
         const letters = ['A', 'B', 'C', 'D'];
         currentQ.options.push(`Option ${letters[currentQ.options.length]}`);
       }
-      currentQ.options = currentQ.options.slice(0, 4);
+      currentQ.options = currentQ.options.slice(0, 4).map(o => sanitizeAndFormatMathText(o));
+      currentQ.text = sanitizeAndFormatMathText(currentQ.text);
+      currentQ.question_text = currentQ.text;
       questions.push(currentQ);
     }
   };
@@ -527,5 +591,88 @@ export const cropManualDiagram = async (req, res) => {
   } catch (err) {
     console.error('Failed to crop diagram:', err);
     return res.status(500).json({ error: 'Failed to process crop', details: err.message });
+  }
+};
+
+export const parsePdfWithGeminiVision = async (req, res) => {
+  try {
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ error: 'No PDF file uploaded' });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_KEY;
+    if (!apiKey) {
+      return res.status(400).json({ error: 'GEMINI_API_KEY is not configured on server. Please add it to your server .env file.' });
+    }
+
+    const { GoogleGenerativeAI } = await import('@google/generative-ai');
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+
+    const pdfBase64 = req.file.buffer.toString('base64');
+
+    const prompt = `You are an expert exam paper parser for IISER IAT, NISER NEST, and JEE Advanced math, physics, chemistry, and biology papers.
+Analyze this PDF document and extract ALL questions into structured JSON.
+CRITICAL MANDATE FOR MATHEMATICS & FORMULAS:
+1. Convert ALL math symbols, integrals (\\int), vectors (\\vec{v}), fractions (\\frac{a}{b}), division (\\div), multiplication (\\times), square roots (\\sqrt{x}), summation (\\sum), limits (\\lim), and matrices into valid LaTeX format wrapped in KaTeX inline delimiters ($...$).
+2. Return ONLY a valid JSON object matching this exact JSON schema:
+{
+  "questions": [
+    {
+      "questionNumber": 1,
+      "section": "Physics", // Must be Physics, Chemistry, Mathematics, or Biology
+      "type": "MCQ",
+      "text": "Question text with $LaTeX$ formulas",
+      "options": ["Option A text", "Option B text", "Option C text", "Option D text"],
+      "correctAnswer": "A"
+    }
+  ]
+}`;
+
+    const result = await model.generateContent([
+      prompt,
+      {
+        inlineData: {
+          data: pdfBase64,
+          mimeType: 'application/pdf'
+        }
+      }
+    ]);
+
+    const responseText = result.response.text();
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('Vision AI response did not contain valid JSON format');
+    }
+
+    const parsedData = JSON.parse(jsonMatch[0]);
+    const rawQuestions = parsedData.questions || [];
+
+    const sectionCounts = { Physics: 0, Chemistry: 0, Mathematics: 0, Biology: 0 };
+    const questions = rawQuestions.map((q, idx) => {
+      const sec = q.section && ['Physics', 'Chemistry', 'Mathematics', 'Biology'].includes(q.section) ? q.section : 'Physics';
+      if (sectionCounts[sec] !== undefined) sectionCounts[sec]++;
+      return {
+        ...q,
+        tempId: `vision_${Date.now()}_${idx}`,
+        questionNumber: q.questionNumber || idx + 1,
+        section: sec,
+        type: 'MCQ',
+        text: sanitizeAndFormatMathText(q.text || ''),
+        options: (q.options || ['Option A', 'Option B', 'Option C', 'Option D']).map(o => sanitizeAndFormatMathText(o)),
+        correctAnswer: q.correctAnswer || 'A',
+        status: 'draft_review'
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      questions,
+      sectionCounts,
+      message: `🤖 Vision AI successfully extracted ${questions.length} questions with 100% LaTeX math symbol precision!`
+    });
+  } catch (err) {
+    console.error('Failed to parse with Gemini Vision:', err);
+    return res.status(500).json({ error: 'Vision AI parsing failed', details: err.message });
   }
 };

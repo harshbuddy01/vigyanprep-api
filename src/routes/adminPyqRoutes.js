@@ -7,6 +7,7 @@ import {
   publishPyq,
   unpublishPyq,
   cropManualDiagram,
+  parsePdfWithGeminiVision,
   getPyqList,
   getTestQuestions,
   updateQuestion,
@@ -21,6 +22,7 @@ router.use(verifyAdminAuth); // 🔒 Protect all PYQ admin endpoints
 const upload = multer({ limits: { fileSize: 20 * 1024 * 1024 } }); // 20MB max
 
 router.post('/upload-pdf', upload.single('file'), uploadAndParsePdf);
+router.post('/upload-pdf-vision', upload.single('file'), parsePdfWithGeminiVision);
 router.post('/approve-publish', approveAndPublishPyq);
 router.get('/list', getPyqList);
 router.get('/test/:testId/questions', getTestQuestions);
