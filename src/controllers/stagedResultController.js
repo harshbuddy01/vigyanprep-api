@@ -196,3 +196,133 @@ export const calculateTestRanks = async (req, res) => {
     return res.status(500).json({ error: 'Failed to calculate test ranks', details: err.message });
   }
 };
+
+/**
+ * Release Results — sets result_released_at on test, sends email to all students
+ * Called from Admin UI "Release Results" button
+ */
+export const releaseResults = async (req, res) => {
+  try {
+    const testId = req.params.testId || req.params.id;
+    if (!testId) return res.status(400).json({ error: 'testId is required' });
+
+    // 1. Fetch test details
+    const { data: test, error: testErr } = await supabase
+      .from('tests').select('*').eq('id', testId).single();
+    if (testErr || !test) return res.status(404).json({ error: 'Test not found' });
+
+    // 2. Set result_released_at on the test
+    const releasedAt = new Date().toISOString();
+    const { error: updateErr } = await supabase
+      .from('tests')
+      .update({ result_released_at: releasedAt })
+      .eq('id', testId);
+    if (updateErr) throw updateErr;
+
+    // 3. Find all submitted attempts for this test
+    const { data: attempts } = await supabase
+      .from('attempts')
+      .select('id, student_id, students:student_id(email, full_name)')
+      .eq('test_id', testId)
+      .eq('status', 'submitted');
+
+    let notified = 0;
+
+    // 4. Send result notification email to each student
+    if (attempts && attempts.length > 0) {
+      try {
+        const { sendEmail } = await import('../services/emailService.js');
+
+        const testTitle = test.title || test.name || 'Test';
+        const examDate = new Date(test.window_start || releasedAt).toLocaleDateString('en-IN', {
+          timeZone: 'Asia/Kolkata', weekday: 'long', day: '2-digit', month: 'long', year: 'numeric'
+        });
+
+        for (const attempt of attempts) {
+          const email = attempt.students?.email;
+          const name = attempt.students?.full_name || 'Student';
+          if (!email) continue;
+
+          // Fetch this student's rank from results table
+          const { data: resultRow } = await supabase
+            .from('results')
+            .select('rank_overall, percentile, raw_score')
+            .eq('attempt_id', attempt.id)
+            .maybeSingle();
+
+          const rank = resultRow?.rank_overall ? `#${resultRow.rank_overall}` : 'Pending';
+          const score = resultRow?.raw_score !== null && resultRow?.raw_score !== undefined ? `${resultRow.raw_score}` : 'Pending';
+          const percentile = resultRow?.percentile ? `${resultRow.percentile.toFixed(1)}th Percentile` : '';
+          const resultUrl = `https://test.vigyanprep.com/response-sheet?testId=${testId}`;
+
+          const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="font-family: 'Segoe UI', Arial, sans-serif; background: #f4f6f9; margin: 0; padding: 0;">
+  <div style="max-width: 600px; margin: 30px auto; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.10);">
+    <div style="background: #1b365d; padding: 32px 32px 24px; border-bottom: 4px solid #f59e0b;">
+      <h1 style="color: white; font-size: 20px; font-weight: 800; margin: 0; letter-spacing: 0.5px;">🏆 Your Results Are Out!</h1>
+      <p style="color: #fcd34d; font-size: 13px; margin: 6px 0 0; font-weight: 600;">VigyanPrep • ${testTitle}</p>
+    </div>
+    <div style="padding: 28px 32px;">
+      <p style="font-size: 15px; color: #374151;">Dear <strong>${name}</strong>,</p>
+      <p style="font-size: 14px; color: #6b7280; line-height: 1.6;">
+        Results for <strong>${testTitle}</strong> held on <strong>${examDate}</strong> have been officially declared.
+      </p>
+      <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; margin: 20px 0;">
+        <div style="display: flex; justify-content: space-between; flex-wrap: wrap; gap: 16px; text-align: center;">
+          <div style="flex: 1; min-width: 100px;">
+            <div style="font-size: 28px; font-weight: 900; color: #1b365d;">${score}</div>
+            <div style="font-size: 11px; color: #9ca3af; font-weight: 600; margin-top: 4px;">YOUR SCORE</div>
+          </div>
+          <div style="flex: 1; min-width: 100px;">
+            <div style="font-size: 28px; font-weight: 900; color: #059669;">${rank}</div>
+            <div style="font-size: 11px; color: #9ca3af; font-weight: 600; margin-top: 4px;">ALL-INDIA RANK</div>
+          </div>
+          ${percentile ? `<div style="flex: 1; min-width: 100px;">
+            <div style="font-size: 18px; font-weight: 900; color: #d97706;">${percentile}</div>
+            <div style="font-size: 11px; color: #9ca3af; font-weight: 600; margin-top: 4px;">PERCENTILE</div>
+          </div>` : ''}
+        </div>
+      </div>
+      <p style="font-size: 13px; color: #6b7280;">View your complete analysis — correct answers, section scores, and detailed Q&A review:</p>
+      <div style="text-align: center; margin: 24px 0;">
+        <a href="${resultUrl}" style="display: inline-block; background: #1b365d; color: white; padding: 14px 32px; border-radius: 10px; font-weight: 800; font-size: 14px; text-decoration: none; letter-spacing: 0.5px;">
+          📊 View Full Result & Analysis →
+        </a>
+      </div>
+      <p style="font-size: 12px; color: #9ca3af; line-height: 1.6;">
+        You can also download your response sheet and review each question with the official answer key on the results page.
+      </p>
+    </div>
+    <div style="background: #f9fafb; border-top: 1px solid #e5e7eb; padding: 16px 32px; text-align: center;">
+      <p style="font-size: 11px; color: #9ca3af; margin: 0;">© 2026 VigyanPrep • IISER & NISER Preparation Platform</p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+          try {
+            await sendEmail(email, `🏆 Results Declared — ${testTitle} | Your Rank: ${rank}`, html);
+            notified++;
+          } catch (emailErr) {
+            console.error(`Failed to email ${email}:`, emailErr.message);
+          }
+        }
+      } catch (emailImportErr) {
+        console.error('Email service not available:', emailImportErr.message);
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Results released successfully. ${notified} students notified.`,
+      notified,
+      releasedAt
+    });
+  } catch (err) {
+    console.error('releaseResults error:', err);
+    return res.status(500).json({ error: 'Failed to release results', details: err.message });
+  }
+};
