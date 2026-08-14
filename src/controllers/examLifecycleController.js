@@ -218,3 +218,105 @@ export const submitAttempt = async (req, res) => {
     return res.status(500).json({ error: 'Failed to submit attempt', details: err.message });
   }
 };
+
+/**
+ * Get Attempt Result with Correct Answers (only if submitted + results released)
+ * SECURE: correct_answer only returned after admin sets result_released_at on the test
+ */
+export const getAttemptResult = async (req, res) => {
+  try {
+    const { attemptId } = req.params;
+    const studentId = req.user?.id;
+
+    if (!attemptId) return res.status(400).json({ error: 'attemptId is required' });
+
+    const { data: attempt, error: attemptErr } = await supabase
+      .from('attempts').select('*').eq('id', attemptId).single();
+
+    if (attemptErr || !attempt) return res.status(404).json({ error: 'Attempt not found' });
+    if (attempt.student_id !== studentId) return res.status(403).json({ error: 'Access denied' });
+
+    if (attempt.status !== 'submitted') {
+      return res.status(202).json({ success: true, status: 'in_progress', message: 'Exam not yet submitted' });
+    }
+
+    const { data: test } = await supabase
+      .from('tests')
+      .select('id, title, exam_type, content_type, duration_minutes, result_released_at')
+      .eq('id', attempt.test_id).single();
+
+    const { data: studentAnswers } = await supabase
+      .from('attempt_answers').select('question_id, answer').eq('attempt_id', attemptId);
+
+    const answersMap = {};
+    if (studentAnswers) studentAnswers.forEach(a => { answersMap[a.question_id] = a.answer; });
+
+    const resultReleased = !!(test?.result_released_at && new Date(test.result_released_at) <= new Date());
+
+    const questionSelect = resultReleased
+      ? 'id, question_text, text, options, section, correct_answer, marks_positive, marks_negative, solution_explanation, image_url, question_number'
+      : 'id, question_text, text, options, section, marks_positive, marks_negative, image_url, question_number';
+
+    const { data: questions } = await supabase
+      .from('questions').select(questionSelect)
+      .eq('test_id', attempt.test_id)
+      .order('question_number', { ascending: true });
+
+    const questionResults = (questions || []).map(q => {
+      const studentAns = answersMap[q.id] || null;
+      const correctAns = resultReleased ? (q.correct_answer || null) : null;
+      const mp = q.marks_positive || 4;
+      const mn = Math.abs(q.marks_negative || 1);
+
+      let status = 'unattempted';
+      let marksEarned = 0;
+
+      if (studentAns && resultReleased && correctAns) {
+        if (studentAns === correctAns) { status = 'correct'; marksEarned = mp; }
+        else { status = 'incorrect'; marksEarned = -mn; }
+      } else if (studentAns) {
+        status = 'attempted';
+      }
+
+      return { ...q, studentAnswer: studentAns, correctAnswer: correctAns, status, marksEarned: resultReleased ? marksEarned : null };
+    });
+
+    let totalScore = null, sectionScores = null, rank = null, percentile = null;
+
+    if (resultReleased) {
+      totalScore = 0; sectionScores = {};
+      questionResults.forEach(q => {
+        const sec = q.section || 'General';
+        if (!sectionScores[sec]) sectionScores[sec] = { correct: 0, incorrect: 0, unattempted: 0, score: 0 };
+        totalScore += (q.marksEarned || 0);
+        if (q.status === 'correct') { sectionScores[sec].correct++; sectionScores[sec].score += (q.marksEarned || 0); }
+        else if (q.status === 'incorrect') { sectionScores[sec].incorrect++; sectionScores[sec].score += (q.marksEarned || 0); }
+        else { sectionScores[sec].unattempted++; }
+      });
+
+      const { data: resultRow } = await supabase
+        .from('results').select('rank_overall, percentile, raw_score')
+        .eq('attempt_id', attemptId).maybeSingle();
+
+      if (resultRow) {
+        rank = resultRow.rank_overall;
+        percentile = resultRow.percentile;
+        totalScore = resultRow.raw_score ?? totalScore;
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      attempt: { id: attempt.id, status: attempt.status, started_at: attempt.started_at, submitted_at: attempt.submitted_at, warning_count: attempt.warning_count },
+      test: { id: test?.id, title: test?.title, exam_type: test?.exam_type, content_type: test?.content_type },
+      resultReleased,
+      questions: questionResults,
+      totalScore, sectionScores, rank, percentile,
+      totalQuestions: questionResults.length,
+      attempted: questionResults.filter(q => q.status !== 'unattempted').length
+    });
+  } catch (err) {
+    console.error('getAttemptResult error:', err);
+    return res.status(500).json({ error: 'Failed to get attempt result', details: err.message });
+  }
+};

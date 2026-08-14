@@ -85,8 +85,8 @@ async function checkAndSendReminders() {
 
 async function sendReminderForTest(test, studentEmail, studentName, examId) {
   const windowStart = new Date(test.window_start);
-  const examDate = windowStart.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-  const examTime = windowStart.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+  const examDate = windowStart.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Kolkata' });
+  const examTime = windowStart.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' });
 
   const html = reminderEmail({
     studentName: studentName || 'Student',

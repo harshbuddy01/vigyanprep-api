@@ -68,8 +68,8 @@ export const issueHallTicket = async (req, res) => {
 
       if (student?.email && testFull) {
         const windowStart = testFull.window_start ? new Date(testFull.window_start) : new Date();
-        const examDate = windowStart.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-        const examTime = windowStart.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+        const examDate = windowStart.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Kolkata' });
+        const examTime = windowStart.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' });
 
         const html = hallTicketEmail({
           studentName: student.full_name || 'Student',

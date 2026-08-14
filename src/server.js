@@ -123,6 +123,8 @@ app.use('/api/admin/hall-tickets', hallTicketRoutes);
 app.use('/api/admin/question-reports', questionReportRoutes);
 app.use('/api/admin/blueprints', blueprintRoutes);
 app.use('/api/admin/lifecycle', examLifecycleRoutes);
+app.use('/api/exam/lifecycle', examLifecycleRoutes); // Student-accessible lifecycle endpoints
+
 
 app.use('/api/admin/dashboard', adminDashboardRoutes);
 app.use('/api/admin/test-builder', adminTestRoutes);
