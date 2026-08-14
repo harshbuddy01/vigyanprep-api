@@ -48,6 +48,7 @@ import challengeRoutes from './routes/challengeRoutes.js';
 import adminResultsControlRoutes from './routes/adminResultsControlRoutes.js';
 import examAccessRoutes from './routes/examAccessRoutes.js';
 import studentSubscriptionRoutes from './routes/studentSubscriptionRoutes.js';
+import studentAnalyticsRoutes from './routes/studentAnalyticsRoutes.js';
 import { startReminderScheduler } from './services/reminderScheduler.js';
 
 // Validate environment
@@ -124,6 +125,7 @@ app.use('/api/admin/question-reports', questionReportRoutes);
 app.use('/api/admin/blueprints', blueprintRoutes);
 app.use('/api/admin/lifecycle', examLifecycleRoutes);
 app.use('/api/exam/lifecycle', examLifecycleRoutes); // Student-accessible lifecycle endpoints
+app.use('/api/student/analytics', studentAnalyticsRoutes); // Student performance analytics
 
 
 app.use('/api/admin/dashboard', adminDashboardRoutes);
