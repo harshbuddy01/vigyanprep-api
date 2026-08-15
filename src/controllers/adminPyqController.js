@@ -284,28 +284,45 @@ export const uploadAndParsePdf = async (req, res) => {
 };
 
 /**
- * Approve & Publish PYQ Paper
+ * Approve & Save Paper (Universal: Supports Paid Test Series & Free PYQ)
  */
 export const approveAndPublishPyq = async (req, res) => {
   try {
-    const { title, examType, year, durationMinutes, questions } = req.body;
+    const {
+      title,
+      examType,
+      year,
+      durationMinutes,
+      questions,
+      contentType,
+      content_type,
+      windowStart,
+      window_start,
+      windowEnd,
+      window_end,
+      description
+    } = req.body;
 
     if (!title || !questions || !Array.isArray(questions) || questions.length === 0) {
       return res.status(400).json({ error: 'Title and non-empty questions array are required' });
     }
 
-    // Extract year from title if year not explicitly passed
+    const targetContentType = contentType || content_type || 'pyq';
+    const targetWindowStart = windowStart || window_start || null;
+    const targetWindowEnd = windowEnd || window_end || null;
     const parsedYear = parseInt(year) || (title.match(/\d{4}/) ? parseInt(title.match(/\d{4}/)[0]) : new Date().getFullYear());
 
-    // 1. Insert PYQ into 'tests' table strictly with content_type = 'pyq'
+    // 1. Insert into 'tests' table with chosen content_type ('test_series' or 'pyq')
     const { data: test, error: testErr } = await supabase
       .from('tests')
       .insert({
         title,
         exam_type: examType || 'IAT',
-        content_type: 'pyq',
-        pyq_year: parsedYear,
-        description: `${title} — Official PYQ Paper`,
+        content_type: targetContentType,
+        pyq_year: targetContentType === 'pyq' ? parsedYear : null,
+        window_start: targetContentType === 'test_series' ? targetWindowStart : null,
+        window_end: targetContentType === 'test_series' ? targetWindowEnd : null,
+        description: description || `${title} — ${targetContentType === 'test_series' ? 'Live Paid Test Series Mock' : 'Official PYQ Paper'}`,
         duration_minutes: durationMinutes || 180,
         is_active: true,
         is_published: false,
@@ -315,7 +332,7 @@ export const approveAndPublishPyq = async (req, res) => {
       .single();
 
     if (testErr || !test) {
-      throw testErr || new Error('Failed to create PYQ test entry');
+      throw testErr || new Error('Failed to create test entry');
     }
 
     const testId = test.id;
@@ -347,12 +364,13 @@ export const approveAndPublishPyq = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: `${insertedQs.length} questions published successfully`,
+      message: `${insertedQs.length} questions saved successfully for ${targetContentType === 'test_series' ? 'Paid Test Series' : 'Free PYQ'}`,
       testId,
+      contentType: targetContentType,
       insertedCount: insertedQs.length
     });
   } catch (err) {
-    return res.status(500).json({ error: 'Failed to publish PYQ', details: err.message });
+    return res.status(500).json({ error: 'Failed to save paper', details: err.message });
   }
 };
 
@@ -545,6 +563,47 @@ export const unpublishPyq = async (req, res) => {
     return res.status(200).json({ success: true, test: data, message: 'Paper unpublished and hidden from students' });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to unpublish', details: err.message });
+  }
+};
+
+/**
+ * Switch Paper Category (Paid Test Series ⇄ Free PYQ)
+ */
+export const switchPaperType = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { contentType, content_type, windowStart, window_start, windowEnd, window_end } = req.body;
+    const targetType = contentType || content_type;
+
+    if (!targetType || !['test_series', 'pyq'].includes(targetType)) {
+      return res.status(400).json({ error: 'Valid target contentType (test_series or pyq) is required' });
+    }
+
+    const updatePayload = {
+      content_type: targetType
+    };
+
+    if (targetType === 'test_series') {
+      if (windowStart || window_start) updatePayload.window_start = windowStart || window_start;
+      if (windowEnd || window_end) updatePayload.window_end = windowEnd || window_end;
+    }
+
+    const { data, error } = await supabase
+      .from('tests')
+      .update(updatePayload)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return res.status(200).json({
+      success: true,
+      test: data,
+      message: `Paper category successfully changed to ${targetType === 'test_series' ? 'Paid Live Test Series' : 'Free PYQ Practice'}`
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to switch paper category', details: err.message });
   }
 };
 

@@ -13,7 +13,8 @@ import {
   updateQuestion,
   deleteQuestion,
   updateTest,
-  deleteTest
+  deleteTest,
+  switchPaperType
 } from '../controllers/adminPyqController.js';
 
 const router = express.Router();
@@ -32,6 +33,7 @@ router.put('/test/:id', updateTest);
 router.delete('/test/:id', deleteTest);
 router.post('/publish/:id', publishPyq);
 router.post('/unpublish/:id', unpublishPyq);
+router.post('/switch-type/:id', switchPaperType);
 router.post('/crop-manual', cropManualDiagram);
 
 export default router;
