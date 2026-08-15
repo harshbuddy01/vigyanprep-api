@@ -220,11 +220,13 @@ export const releaseResults = async (req, res) => {
     if (updateErr) throw updateErr;
 
     // 3. Find all submitted attempts for this test
-    const { data: attempts } = await supabase
+    const { data: attempts, error: attErr } = await supabase
       .from('attempts')
-      .select('id, student_id, students:student_id(email, full_name)')
+      .select('id, student_id')
       .eq('test_id', testId)
       .eq('status', 'submitted');
+
+    if (attErr) console.warn('Could not fetch attempts for result release:', attErr.message);
 
     let notified = 0;
 
@@ -233,14 +235,25 @@ export const releaseResults = async (req, res) => {
       try {
         const { sendEmail } = await import('../services/emailService.js');
 
+        // Fetch student profiles for these attempts
+        const studentIds = attempts.map(a => a.student_id).filter(Boolean);
+        const { data: studentList } = await supabase
+          .from('students')
+          .select('id, email, full_name')
+          .in('id', studentIds);
+
+        const studentMap = new Map();
+        (studentList || []).forEach(s => studentMap.set(s.id, s));
+
         const testTitle = test.title || test.name || 'Test';
         const examDate = new Date(test.window_start || releasedAt).toLocaleDateString('en-IN', {
           timeZone: 'Asia/Kolkata', weekday: 'long', day: '2-digit', month: 'long', year: 'numeric'
         });
 
         for (const attempt of attempts) {
-          const email = attempt.students?.email;
-          const name = attempt.students?.full_name || 'Student';
+          const student = studentMap.get(attempt.student_id);
+          const email = student?.email;
+          const name = student?.full_name || 'Student';
           if (!email) continue;
 
           // Fetch this student's rank from results table

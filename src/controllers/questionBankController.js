@@ -25,22 +25,10 @@ export const getQuestionBank = async (req, res) => {
 
     let query = supabase
       .from('questions')
-      .select('*, tests:test_id(id, title, name, exam_type)', { count: 'exact' });
+      .select('*', { count: 'exact' });
 
     if (section && section !== 'All') {
       query = query.eq('section', section);
-    }
-
-    if (difficulty && difficulty !== 'All') {
-      query = query.eq('difficulty', difficulty);
-    }
-
-    if (exam_type && exam_type !== 'All') {
-      query = query.eq('exam_type', exam_type);
-    }
-
-    if (topic && topic.trim()) {
-      query = query.ilike('topic', `%${topic.trim()}%`);
     }
 
     if (search && search.trim()) {
@@ -77,7 +65,7 @@ export const getQuestionBankStats = async (req, res) => {
   try {
     const { data: allQuestions, error } = await supabase
       .from('questions')
-      .select('id, section, difficulty');
+      .select('id, section');
 
     if (error) throw error;
 
@@ -94,16 +82,12 @@ export const getQuestionBankStats = async (req, res) => {
     };
 
     (allQuestions || []).forEach(q => {
-      if (stats[q.section] !== undefined) {
-        stats[q.section]++;
+      const sec = q.section || 'Physics';
+      if (stats[sec] !== undefined) {
+        stats[sec]++;
       } else {
         stats.Other++;
       }
-
-      const diff = (q.difficulty || '').toLowerCase();
-      if (diff === 'easy') stats.easy++;
-      else if (diff === 'hard') stats.hard++;
-      else stats.medium++;
     });
 
     return res.status(200).json({ success: true, stats });
