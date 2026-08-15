@@ -156,7 +156,6 @@ export const createQuestionInBank = async (req, res) => {
         section,
         question_number: parseInt(question_number, 10) || 1,
         question_text: question_text.trim(),
-        text: question_text.trim(),
         type,
         question_type: type,
         options: Array.isArray(options) ? options : ['A', 'B', 'C', 'D'],
@@ -164,10 +163,7 @@ export const createQuestionInBank = async (req, res) => {
         image_url: image_url || null,
         marks_positive: Number(marks_positive) || 4,
         marks_negative: Number(marks_negative) || 1,
-        solution_explanation: solution_explanation || '',
-        topic: topic || null,
-        difficulty: difficulty || 'Medium',
-        exam_type: exam_type || 'IAT',
+        model_answer: solution_explanation || '',
         status: 'approved'
       })
       .select()
@@ -199,10 +195,7 @@ export const updateQuestionInBank = async (req, res) => {
       image_url,
       marks_positive,
       marks_negative,
-      solution_explanation,
-      topic,
-      difficulty,
-      exam_type
+      solution_explanation
     } = req.body;
 
     const updates = {};
@@ -210,7 +203,6 @@ export const updateQuestionInBank = async (req, res) => {
     if (question_number !== undefined) updates.question_number = parseInt(question_number, 10);
     if (question_text !== undefined) {
       updates.question_text = question_text.trim();
-      updates.text = question_text.trim();
     }
     if (type !== undefined) {
       updates.type = type;
@@ -221,10 +213,7 @@ export const updateQuestionInBank = async (req, res) => {
     if (image_url !== undefined) updates.image_url = image_url || null;
     if (marks_positive !== undefined) updates.marks_positive = Number(marks_positive);
     if (marks_negative !== undefined) updates.marks_negative = Number(marks_negative);
-    if (solution_explanation !== undefined) updates.solution_explanation = solution_explanation;
-    if (topic !== undefined) updates.topic = topic;
-    if (difficulty !== undefined) updates.difficulty = difficulty;
-    if (exam_type !== undefined) updates.exam_type = exam_type;
+    if (solution_explanation !== undefined) updates.model_answer = solution_explanation;
 
     const { data, error } = await supabase
       .from('questions')
@@ -318,7 +307,6 @@ export const importQuestionsToTest = async (req, res) => {
         section: sec,
         question_number: sectionMaxNum[sec],
         question_text: src.question_text || src.text,
-        text: src.question_text || src.text,
         type: src.type || src.question_type || 'MCQ',
         question_type: src.type || src.question_type || 'MCQ',
         options: src.options,
@@ -326,10 +314,7 @@ export const importQuestionsToTest = async (req, res) => {
         image_url: src.image_url,
         marks_positive: src.marks_positive || 4,
         marks_negative: src.marks_negative || 1,
-        solution_explanation: src.solution_explanation,
-        topic: src.topic,
-        difficulty: src.difficulty,
-        exam_type: src.exam_type,
+        model_answer: src.model_answer || src.solution_explanation || '',
         status: 'approved'
       };
     });
