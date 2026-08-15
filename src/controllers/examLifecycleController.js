@@ -178,7 +178,7 @@ export const logProctorEvent = async (req, res) => {
 export const submitAttempt = async (req, res) => {
   try {
     const { attemptId } = req.params;
-    const { submitReason } = req.body; // 'manual', 'auto_time', 'auto_proctor'
+    const { submitReason, answers } = req.body; // 'manual', 'auto_time', 'auto_proctor'
 
     const { data: attempt, error: attemptErr } = await supabase
       .from('attempts')
@@ -192,6 +192,19 @@ export const submitAttempt = async (req, res) => {
 
     if (attempt.status === 'submitted') {
       return res.status(200).json({ success: true, message: 'Attempt already submitted', attempt });
+    }
+
+    // Persist final answers if provided in submission payload
+    if (Array.isArray(answers) && answers.length > 0) {
+      const upsertRows = answers.map(a => ({
+        attempt_id: attemptId,
+        question_id: a.questionId || a.question_id,
+        answer: typeof a.answer === 'object' ? JSON.stringify(a.answer) : String(a.answer || ''),
+        answered_at: new Date().toISOString()
+      }));
+      await supabase.from('attempt_answers').upsert(upsertRows, { onConflict: 'attempt_id,question_id' }).catch(err => {
+        console.warn('Upsert on submit notice:', err.message);
+      });
     }
 
     const submittedAt = new Date().toISOString();
