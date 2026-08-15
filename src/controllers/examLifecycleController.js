@@ -323,3 +323,47 @@ export const getAttemptResult = async (req, res) => {
     return res.status(500).json({ error: 'Failed to get attempt result', details: err.message });
   }
 };
+
+/**
+ * Get Paper Solutions and Official Answer Key (for students who missed or want review)
+ */
+export const getPaperSolutions = async (req, res) => {
+  try {
+    const { testId } = req.params;
+    if (!testId) return res.status(400).json({ error: 'testId is required' });
+
+    const { data: test, error: testErr } = await supabase
+      .from('tests')
+      .select('id, title, exam_type, content_type, duration_minutes, response_released_at, status')
+      .eq('id', testId)
+      .maybeSingle();
+
+    if (testErr || !test) return res.status(404).json({ error: 'Test not found' });
+
+    const isPyq = test.content_type === 'pyq';
+    const resultReleased = isPyq || test.status === 'completed' || !!(test.response_released_at && new Date(test.response_released_at) <= new Date());
+
+    if (!resultReleased) {
+      return res.status(403).json({ success: false, error: 'Results and solutions for this exam have not been declared yet.' });
+    }
+
+    const { data: rawQuestions } = await supabase
+      .from('questions')
+      .select('id, question_text, text, options, section, correct_answer, marks_positive, marks_negative, solution_explanation, model_answer, image_url, question_number')
+      .eq('test_id', testId)
+      .order('question_number', { ascending: true });
+
+    return res.status(200).json({
+      success: true,
+      testTitle: test.title,
+      examType: test.exam_type,
+      totalQuestions: (rawQuestions || []).length,
+      questions: (rawQuestions || []).map(q => ({
+        ...q,
+        solution_explanation: q.solution_explanation || q.model_answer || 'Detailed solution provided by academic panel.'
+      }))
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to fetch paper solutions', details: err.message });
+  }
+};

@@ -259,4 +259,37 @@ router.get('/hall-tickets', async (req, res) => {
   }
 });
 
+// GET /api/student/attempts — Returns all exam attempts by the logged-in student
+router.get('/attempts', async (req, res) => {
+  try {
+    const studentId = req.user?.id;
+    if (!studentId) {
+      return res.status(401).json({ success: false, error: 'Authentication required' });
+    }
+
+    const { data: attempts, error } = await supabase
+      .from('attempts')
+      .select('id, test_id, started_at, status, submitted_at, warning_count')
+      .eq('student_id', studentId);
+
+    if (error) {
+      console.error('❌ Student attempts error:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    const attemptedTestIds = (attempts || [])
+      .filter(a => a.status === 'submitted')
+      .map(a => a.test_id);
+
+    return res.status(200).json({
+      success: true,
+      attempts: attempts || [],
+      attemptedTestIds
+    });
+  } catch (error) {
+    console.error('❌ Student attempts route error:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 export default router;
