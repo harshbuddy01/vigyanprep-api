@@ -43,9 +43,34 @@ export const getQuestionBank = async (req, res) => {
 
     if (error) throw error;
 
+    // Fetch tests to enrich questions with PYQ source metadata
+    const testIds = Array.from(new Set((questions || []).map(q => q.test_id).filter(Boolean)));
+    const testMap = new Map();
+
+    if (testIds.length > 0) {
+      const { data: testRows } = await supabase
+        .from('tests')
+        .select('id, title, name, content_type, pyq_year, exam_type')
+        .in('id', testIds);
+
+      (testRows || []).forEach(t => testMap.set(t.id, t));
+    }
+
+    const enriched = (questions || []).map(q => {
+      const parentTest = q.test_id ? testMap.get(q.test_id) : null;
+      const isPyq = parentTest?.content_type === 'pyq' || !!parentTest?.pyq_year || !!q.pyq_year;
+      return {
+        ...q,
+        is_pyq: isPyq,
+        pyq_year: q.pyq_year || parentTest?.pyq_year || null,
+        test_title: parentTest?.title || parentTest?.name || (q.test_id ? 'Test Paper' : 'Master Bank'),
+        exam_type: q.exam_type || parentTest?.exam_type || 'IAT'
+      };
+    });
+
     return res.status(200).json({
       success: true,
-      questions: questions || [],
+      questions: enriched,
       total: count || 0,
       page: pageNum,
       limit: limitNum,
