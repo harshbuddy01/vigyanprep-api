@@ -107,4 +107,44 @@ router.put('/:id/freeze', async (req, res) => {
   }
 });
 
+// UPDATE test details (Title, Exam Type, Window Start/End, Duration)
+router.put('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, name, exam_type, window_start, window_end, duration_minutes, description } = req.body;
+
+    const updates = {};
+    if (title || name) updates.title = title || name;
+    if (exam_type) updates.exam_type = exam_type.toUpperCase();
+    if (window_start) updates.window_start = window_start;
+    if (window_end) updates.window_end = window_end;
+    if (duration_minutes) updates.duration_minutes = parseInt(duration_minutes, 10);
+    if (description !== undefined) updates.description = description;
+
+    const { data, error } = await supabase
+      .from('tests')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ success: false, error: error.message });
+    return res.json({ success: true, test: data, message: 'Test details updated successfully' });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE test
+router.delete('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { error } = await supabase.from('tests').delete().eq('id', id);
+    if (error) return res.status(500).json({ success: false, error: error.message });
+    return res.json({ success: true, message: 'Test deleted successfully' });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 export default router;
