@@ -7,7 +7,7 @@ export const getPublicPyqs = async (req, res) => {
     // Exclude: status='draft' (only show published/ongoing/null status)
     const { data, error } = await supabase
       .from('tests')
-      .select('id, title, exam_type, pyq_year, duration_minutes, status, window_start, window_end, content_type, created_at')
+      .select('id, title, exam_type, pyq_year, duration_minutes, status, window_start, window_end, content_type, response_released_at, created_at')
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -38,7 +38,7 @@ export const getPublicTests = async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('tests')
-      .select('id, title, exam_type, pyq_year, duration_minutes, status, window_start, window_end, content_type, created_at')
+      .select('id, title, exam_type, pyq_year, duration_minutes, status, window_start, window_end, content_type, response_released_at, created_at')
       .eq('content_type', 'test_series')
       .or('status.neq.draft,status.is.null')
       .order('window_start', { ascending: false });
