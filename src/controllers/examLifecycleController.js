@@ -240,10 +240,12 @@ export const getAttemptResult = async (req, res) => {
       return res.status(202).json({ success: true, status: 'in_progress', message: 'Exam not yet submitted' });
     }
 
+    // 2. Fetch test info & verify result release status
     const { data: test } = await supabase
       .from('tests')
-      .select('id, title, exam_type, content_type, duration_minutes, result_released_at')
-      .eq('id', attempt.test_id).single();
+      .select('id, title, exam_type, content_type, duration_minutes, response_released_at')
+      .eq('id', attempt.test_id)
+      .maybeSingle();
 
     const { data: studentAnswers } = await supabase
       .from('attempt_answers').select('question_id, answer').eq('attempt_id', attemptId);
@@ -251,7 +253,8 @@ export const getAttemptResult = async (req, res) => {
     const answersMap = {};
     if (studentAnswers) studentAnswers.forEach(a => { answersMap[a.question_id] = a.answer; });
 
-    const resultReleased = !!(test?.result_released_at && new Date(test.result_released_at) <= new Date());
+    const isPyq = test?.content_type === 'pyq';
+    const resultReleased = isPyq || !!(test?.response_released_at && new Date(test.response_released_at) <= new Date());
 
     const questionSelect = resultReleased
       ? 'id, question_text, text, options, section, correct_answer, marks_positive, marks_negative, solution_explanation, image_url, question_number'

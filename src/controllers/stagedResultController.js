@@ -211,11 +211,14 @@ export const releaseResults = async (req, res) => {
       .from('tests').select('*').eq('id', testId).single();
     if (testErr || !test) return res.status(404).json({ error: 'Test not found' });
 
-    // 2. Set result_released_at on the test
+    // 2. Set response_released_at on the test
     const releasedAt = new Date().toISOString();
     const { error: updateErr } = await supabase
       .from('tests')
-      .update({ result_released_at: releasedAt })
+      .update({
+        response_released_at: releasedAt,
+        status: 'completed'
+      })
       .eq('id', testId);
     if (updateErr) throw updateErr;
 
