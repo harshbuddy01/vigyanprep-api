@@ -539,12 +539,17 @@ export const publishPyq = async (req, res) => {
     const { id } = req.params;
     const { data, error } = await supabase
       .from('tests')
-      .update({ status: 'ongoing', is_published: true, is_active: true })
+      .update({
+        status: 'ongoing',
+        is_published: true,
+        is_active: true,
+        preview_status: 'valid'
+      })
       .eq('id', id)
       .select()
       .single();
     if (error) throw error;
-    return res.status(200).json({ success: true, test: data, message: 'Paper published and now visible to students' });
+    return res.status(200).json({ success: true, test: data, message: 'Paper published, quality-validated, and now visible to students' });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to publish', details: err.message });
   }
