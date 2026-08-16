@@ -36,15 +36,28 @@ export const startAttempt = async (req, res) => {
       .maybeSingle();
 
     if (existing) {
-      // Resume existing attempt
+      // Resume existing attempt - fetch all previously saved answers
       const now = new Date();
       const deadline = new Date(existing.server_deadline);
       const isExpired = now > deadline || existing.status === 'submitted';
+
+      const { data: savedAnswers } = await supabase
+        .from('attempt_answers')
+        .select('question_id, answer')
+        .eq('attempt_id', existing.id);
+
+      const answersMap = {};
+      (savedAnswers || []).forEach(a => {
+        if (a.question_id && a.answer) {
+          answersMap[a.question_id] = a.answer;
+        }
+      });
 
       return res.status(200).json({
         success: true,
         attempt: existing,
         resumed: true,
+        answers: answersMap,
         remaining_seconds: Math.max(0, Math.floor((deadline.getTime() - now.getTime()) / 1000)),
         isExpired
       });
