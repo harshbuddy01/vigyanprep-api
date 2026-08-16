@@ -386,8 +386,12 @@ export const getPyqList = async (req, res) => {
 
     if (error) throw error;
 
-    // Filter out any explicitly designated test series papers (where content_type === 'test_series')
-    const pyqPapers = (data || []).filter(t => t.content_type !== 'test_series');
+    // Filter strictly for designated PYQ papers
+    const pyqPapers = (data || []).filter(t =>
+      t.content_type === 'pyq' ||
+      (t.content_type !== 'test_series' && t.pyq_year) ||
+      (t.content_type !== 'test_series' && t.title && (t.title.toUpperCase().includes('PYQ') || t.title.toUpperCase().includes('OFFICIAL PAPER')))
+    );
 
     return res.status(200).json({ success: true, papers: pyqPapers });
   } catch (err) {

@@ -12,13 +12,15 @@ export const getPublicPyqs = async (req, res) => {
 
     if (error) throw error;
 
-    // Filter in JS for more reliable logic (Supabase OR filters can be tricky with nulls)
+    // Filter in JS for strict and reliable segregation
     const filtered = (data || []).filter(t => {
       // Exclude test_series content
       if (t.content_type === 'test_series') return false;
       // Exclude drafts
       if (t.status === 'draft') return false;
-      return true;
+      // Must be designated PYQ or have PYQ year / title
+      const isPyq = t.content_type === 'pyq' || !!t.pyq_year || (t.title && (t.title.toUpperCase().includes('PYQ') || t.title.toUpperCase().includes('OFFICIAL PAPER')));
+      return isPyq;
     });
 
     const mapped = filtered.map(t => ({
