@@ -303,8 +303,8 @@ export const getAttemptResult = async (req, res) => {
     const resultReleased = isPyq || test?.status === 'completed' || !!(test?.response_released_at && new Date(test.response_released_at) <= new Date());
 
     const questionSelect = resultReleased
-      ? 'id, question_text, text, options, section, correct_answer, marks_positive, marks_negative, solution_explanation, image_url, question_number'
-      : 'id, question_text, text, options, section, marks_positive, marks_negative, image_url, question_number';
+      ? 'id, question_text, options, section, correct_answer, marks_positive, marks_negative, model_answer, image_url, question_number'
+      : 'id, question_text, options, section, marks_positive, marks_negative, image_url, question_number';
 
     const { data: questions } = await supabase
       .from('questions').select(questionSelect)
@@ -327,7 +327,14 @@ export const getAttemptResult = async (req, res) => {
         status = 'attempted';
       }
 
-      return { ...q, studentAnswer: studentAns, correctAnswer: correctAns, status, marksEarned: resultReleased ? marksEarned : null };
+      return {
+        ...q,
+        studentAnswer: studentAns,
+        correctAnswer: correctAns,
+        solution_explanation: q.model_answer || '',
+        status,
+        marksEarned: resultReleased ? marksEarned : null
+      };
     });
 
     let totalScore = null, sectionScores = null, rank = null, percentile = null;
@@ -395,7 +402,7 @@ export const getPaperSolutions = async (req, res) => {
 
     const { data: rawQuestions } = await supabase
       .from('questions')
-      .select('id, question_text, text, options, section, correct_answer, marks_positive, marks_negative, solution_explanation, model_answer, image_url, question_number')
+      .select('id, question_text, options, section, correct_answer, marks_positive, marks_negative, model_answer, image_url, question_number')
       .eq('test_id', testId)
       .order('question_number', { ascending: true });
 
@@ -406,7 +413,7 @@ export const getPaperSolutions = async (req, res) => {
       totalQuestions: (rawQuestions || []).length,
       questions: (rawQuestions || []).map(q => ({
         ...q,
-        solution_explanation: q.solution_explanation || q.model_answer || 'Detailed solution provided by academic panel.'
+        solution_explanation: q.model_answer || 'Detailed solution provided by academic panel.'
       }))
     });
   } catch (err) {
