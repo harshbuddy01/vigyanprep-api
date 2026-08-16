@@ -92,8 +92,8 @@ export const autosaveAnswers = async (req, res) => {
     const { attemptId } = req.params;
     const { answers, warningCount } = req.body;
 
-    if (!attemptId || !Array.isArray(answers)) {
-      return res.status(400).json({ error: 'attemptId and answers array are required' });
+    if (!attemptId || (!Array.isArray(answers) && (!answers || typeof answers !== 'object'))) {
+      return res.status(400).json({ error: 'attemptId and answers payload are required' });
     }
 
     // Fetch attempt to check deadline & ownership
@@ -117,8 +117,19 @@ export const autosaveAnswers = async (req, res) => {
       });
     }
 
+    // Normalize answers from either Array or Key-Value Object
+    let normalizedAnswers = [];
+    if (Array.isArray(answers)) {
+      normalizedAnswers = answers;
+    } else if (answers && typeof answers === 'object') {
+      normalizedAnswers = Object.entries(answers).map(([qId, ans]) => ({
+        question_id: qId,
+        answer: ans
+      }));
+    }
+
     // Save/upsert answers
-    const upsertRows = answers.map(a => ({
+    const upsertRows = normalizedAnswers.map(a => ({
       attempt_id: attemptId,
       question_id: a.questionId || a.question_id,
       answer: typeof a.answer === 'object' ? JSON.stringify(a.answer) : String(a.answer || ''),
@@ -193,9 +204,19 @@ export const submitAttempt = async (req, res) => {
       return res.status(200).json({ success: true, message: 'Attempt already submitted', attempt });
     }
 
-    // Persist final answers if provided in submission payload
-    if (Array.isArray(answers) && answers.length > 0) {
-      const upsertRows = answers.map(a => ({
+    // Persist final answers if provided in submission payload (Array or Object format)
+    let normalizedAnswers = [];
+    if (Array.isArray(answers)) {
+      normalizedAnswers = answers;
+    } else if (answers && typeof answers === 'object') {
+      normalizedAnswers = Object.entries(answers).map(([qId, ans]) => ({
+        question_id: qId,
+        answer: ans
+      }));
+    }
+
+    if (normalizedAnswers.length > 0) {
+      const upsertRows = normalizedAnswers.map(a => ({
         attempt_id: attemptId,
         question_id: a.questionId || a.question_id,
         answer: typeof a.answer === 'object' ? JSON.stringify(a.answer) : String(a.answer || ''),
