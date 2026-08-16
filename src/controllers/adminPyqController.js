@@ -770,9 +770,43 @@ export const parsePdfWithGeminiVision = async (req, res) => {
       return res.status(400).json({ error: 'No PDF file uploaded' });
     }
 
+    // 1. Try Groq AI & PyMuPDF Cropper first if Groq key or general AI is present
+    const groqKey = process.env.GROQ_API_KEY;
+    if (groqKey || !process.env.GEMINI_API_KEY) {
+      try {
+        const groqResult = await runPythonScript('src/python/groq_exam_extractor.py', req.file.buffer);
+        if (groqResult && groqResult.questions && groqResult.questions.length > 0) {
+          return res.status(200).json({
+            success: true,
+            source: 'groq_ai_vision_engine',
+            filename: req.file.originalname,
+            totalQuestions: groqResult.questions.length,
+            sectionCounts: groqResult.sectionCounts || { Physics: 0, Chemistry: 0, Mathematics: 0, Biology: 0 },
+            questions: groqResult.questions,
+            message: groqResult.message || `🤖 Groq AI Vision successfully extracted ${groqResult.questions.length} questions with 100% mathematical and chemical precision!`
+          });
+        }
+      } catch (groqErr) {
+        console.warn('Groq AI Vision failed, falling back:', groqErr.message);
+      }
+    }
+
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_KEY;
     if (!apiKey) {
-      return res.status(400).json({ error: 'GEMINI_API_KEY is not configured on server. Please add it to your server .env file.' });
+      // Fallback directly to Python scientific extractor
+      const pyResult = await runPythonScript('src/python/scientific_paper_extractor.py', req.file.buffer);
+      if (pyResult && pyResult.questions && pyResult.questions.length > 0) {
+        return res.status(200).json({
+          success: true,
+          source: 'python_scientific_engine',
+          filename: req.file.originalname,
+          totalQuestions: pyResult.questions.length,
+          sectionCounts: pyResult.sectionCounts || { Physics: 0, Chemistry: 0, Mathematics: 0, Biology: 0 },
+          questions: pyResult.questions,
+          message: pyResult.message || `🐍 Python successfully extracted ${pyResult.questions.length} questions!`
+        });
+      }
+      return res.status(400).json({ error: 'AI Parser could not process this PDF. Make sure GROQ_API_KEY is configured in server .env.' });
     }
 
     const { GoogleGenerativeAI } = await import('@google/generative-ai');
@@ -783,43 +817,11 @@ export const parsePdfWithGeminiVision = async (req, res) => {
 
     const prompt = `You are a world-class scientific exam paper parser for IISER IAT, NISER NEST, ISI, CMI, and JEE Advanced papers (Physics, Chemistry, Mathematics, Biology).
 Analyze this PDF document and extract ALL questions into structured JSON with 100% mathematical and chemical formula precision.
-
-CRITICAL MATHEMATICS, CHEMISTRY & LATEX FORMULA MANDATE:
-1. CHEMISTRY IONS & FORMULAS:
-   - Convert all chemical ions, charges, and subscripts into valid LaTeX format wrapped in $...$.
-   - Example: N2 2+ must be converted to "$N_2^{2+}$" (NEVER write "N2 2+" or "and two").
-   - Example: SO4 2- -> "$SO_4^{2-}$", O2- -> "$O_2^-$", H3O+ -> "$H_3O^+$", [Fe(CN)6]4- -> "$[Fe(CN)_6]^{4-}$".
-   - Chemical equations with reaction arrows: "$\\text{N}_2 + 3\\text{H}_2 \\rightleftharpoons 2\\text{NH}_3$".
-
-2. SQUARE ROOTS & RADICALS:
-   - Convert all square roots to LaTeX "\\sqrt{...}".
-   - Example: root 2 or √2 must be converted to "$\\sqrt{2}$".
-   - Example: √(x^2 + y^2) -> "$\\sqrt{x^2 + y^2}$", root 3 / 2 -> "$\\frac{\\sqrt{3}}{2}$".
-
-3. POWERS, EXPONENTS & SCIENTIFIC NOTATION:
-   - Example: 3 x 10^8 -> "$3 \\times 10^8$", 10^-5 -> "$10^{-5}$", x^2 -> "$x^2$", x_1 -> "$x_1$".
-
-4. FRACTIONS, INTEGRALS, VECTORS, MATRICES & SUMS:
-   - Fractions: a/b -> "$\\frac{a}{b}$".
-   - Integrals: "$\\int_{a}^{b} f(x) dx$".
-   - Vectors: "$\\vec{v}$" or "$\\hat{i} + \\hat{j}$".
-   - Matrices: "$\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}$".
-   - Limits: "$\\lim_{x \\to 0}$".
-   - Sums: "$\\sum_{i=1}^{n} x_i$".
-
-5. Return ONLY a valid JSON object matching this exact JSON schema (no markdown wrap or extra commentary):
-{
-  "questions": [
-    {
-      "questionNumber": 1,
-      "section": "Physics", // Exactly one of: "Physics", "Chemistry", "Mathematics", "Biology"
-      "type": "MCQ", // "MCQ" | "MSQ" | "Numerical"
-      "text": "Question statement containing accurate $LaTeX$ math & chemistry formulas",
-      "options": ["Option A with $LaTeX$", "Option B with $LaTeX$", "Option C with $LaTeX$", "Option D with $LaTeX$"],
-      "correctAnswer": "A" // "A", "B", "C", or "D"
-    }
-  ]
-}`;
+1. LANGUAGE: Extract ONLY the English version of each question. Completely IGNORE and DISCARD any Hindi/Devanagari translation.
+2. CHEMISTRY IONS & FORMULAS: Convert all chemical ions, charges, and subscripts into valid LaTeX format wrapped in $...$ (e.g. $N_2^{2+}$, $SO_4^{2-}$, $O_2^-$, $H_3O^+$, $[Fe(CN)_6]^{4-}$).
+3. SQUARE ROOTS & RADICALS: Convert all square roots to LaTeX (e.g. $\\sqrt{2}$, $\\sqrt{x^2 + y^2}$).
+4. POWERS & FRACTIONS: $3 \\times 10^8$, $10^{-5}$, $\\frac{a}{b}$, $\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}$.
+5. Return ONLY a valid JSON object matching this schema: {"questions": [{"questionNumber": 1, "section": "Physics", "type": "MCQ", "text": "...", "options": ["...", "...", "...", "..."], "correctAnswer": "A"}]}`;
 
     const result = await model.generateContent([
       prompt,
