@@ -523,3 +523,64 @@ export const getAttemptDetailForAdmin = async (req, res) => {
     return res.status(500).json({ error: 'Failed to fetch attempt details', details: err.message });
   }
 };
+
+/**
+ * Admin: Get calculated Merit List for a test
+ */
+export const getMeritListForAdmin = async (req, res) => {
+  try {
+    const { testId } = req.params;
+    if (!testId) return res.status(400).json({ error: 'testId is required' });
+
+    const { data: results, error: resErr } = await supabase
+      .from('results')
+      .select('*')
+      .eq('test_id', testId)
+      .order('rank_overall', { ascending: true });
+
+    if (resErr) throw resErr;
+
+    // Enrich student names & emails
+    const studentIds = (results || []).map(r => r.student_id).filter(Boolean);
+    let studentsMap = {};
+    if (studentIds.length > 0) {
+      const { data: users } = await supabase
+        .from('users')
+        .select('id, email, full_name, name')
+        .in('id', studentIds);
+
+      (users || []).forEach(u => {
+        studentsMap[u.id] = { name: u.full_name || u.name || 'Candidate', email: u.email };
+      });
+
+      for (const sId of studentIds) {
+        if (!studentsMap[sId] || !studentsMap[sId].email) {
+          try {
+            const { data: authUser } = await supabase.auth.admin.getUserById(sId);
+            if (authUser?.user) {
+              studentsMap[sId] = {
+                name: authUser.user.user_metadata?.full_name || authUser.user.user_metadata?.name || 'Candidate',
+                email: authUser.user.email
+              };
+            }
+          } catch (e) {}
+        }
+      }
+    }
+
+    const enriched = (results || []).map(r => ({
+      ...r,
+      student_name: studentsMap[r.student_id]?.name || 'Candidate',
+      student_email: studentsMap[r.student_id]?.email || '—'
+    }));
+
+    return res.status(200).json({
+      success: true,
+      meritList: enriched,
+      count: enriched.length
+    });
+  } catch (err) {
+    console.error('getMeritListForAdmin error:', err);
+    return res.status(500).json({ error: 'Failed to fetch merit list', details: err.message });
+  }
+};

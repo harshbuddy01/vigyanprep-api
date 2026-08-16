@@ -5,7 +5,8 @@ import {
   calculateTestRanks,
   releaseResults,
   getTestAttemptsForAdmin,
-  getAttemptDetailForAdmin
+  getAttemptDetailForAdmin,
+  getMeritListForAdmin
 } from '../controllers/stagedResultController.js';
 import { verifyAuth } from '../middlewares/auth.js';
 import { verifyAdminAuth } from '../middlewares/adminAuth.js';
@@ -25,5 +26,9 @@ router.get('/attempts/:testId', verifyAdminAuth, getTestAttemptsForAdmin);
 router.get('/admin/attempts/:testId', verifyAdminAuth, getTestAttemptsForAdmin);
 router.get('/attempt-detail/:attemptId', verifyAdminAuth, getAttemptDetailForAdmin);
 router.get('/admin/attempt-detail/:attemptId', verifyAdminAuth, getAttemptDetailForAdmin);
+
+// Merit list endpoint for Admin
+router.get('/merit-list/:testId', verifyAdminAuth, getMeritListForAdmin);
+router.get('/admin/merit-list/:testId', verifyAdminAuth, getMeritListForAdmin);
 
 export default router;
