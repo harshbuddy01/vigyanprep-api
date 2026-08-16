@@ -289,7 +289,7 @@ export const getAttemptResult = async (req, res) => {
     // 2. Fetch test info & verify result release status
     const { data: test } = await supabase
       .from('tests')
-      .select('id, title, exam_type, content_type, duration_minutes, response_released_at')
+      .select('id, title, exam_type, content_type, duration_minutes, response_released_at, status')
       .eq('id', attempt.test_id)
       .maybeSingle();
 
@@ -300,7 +300,7 @@ export const getAttemptResult = async (req, res) => {
     if (studentAnswers) studentAnswers.forEach(a => { answersMap[a.question_id] = a.answer; });
 
     const isPyq = test?.content_type === 'pyq';
-    const resultReleased = isPyq || !!(test?.response_released_at && new Date(test.response_released_at) <= new Date());
+    const resultReleased = isPyq || test?.status === 'completed' || !!(test?.response_released_at && new Date(test.response_released_at) <= new Date());
 
     const questionSelect = resultReleased
       ? 'id, question_text, text, options, section, correct_answer, marks_positive, marks_negative, solution_explanation, image_url, question_number'
