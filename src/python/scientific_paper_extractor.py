@@ -10,8 +10,14 @@ High-Precision Engine:
 """
 
 import sys
-import json
 import os
+
+# Ensure current script directory is on sys.path
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+if CURRENT_DIR not in sys.path:
+    sys.path.insert(0, CURRENT_DIR)
+
+import json
 import re
 from typing import List, Dict, Any, Optional
 
@@ -52,10 +58,8 @@ def strip_page_headers_and_footers(text: str) -> str:
     cleaned = []
     for line in lines:
         l = line.strip()
-        # Discard standalone page numbers or footer lines
         if re.match(r'^(?:Page\s*\d+(?:\s*of\s*\d+)?|NEST\s*[-–—:]*\s*\d{4}|Paper\s*\d+|Code\s*[A-Z]|\d+\s*Page\s*\d+)$', l, re.IGNORECASE):
             continue
-        # Strip trailing "Page X" from ends of lines
         l = re.sub(r'\s+Page\s*\d+(?:\s*of\s*\d+)?\s*$', '', l, flags=re.IGNORECASE)
         if l:
             cleaned.append(l)
@@ -71,7 +75,8 @@ def extract_raw_text_from_pdf(pdf_path: str) -> str:
         doc = fitz.open(pdf_path)
         for page in doc:
             full_text += page.get_text("text") + "\n"
-        if len(full_text.strip()) > 100:
+        doc.close()
+        if len(full_text.strip()) > 50:
             return strip_page_headers_and_footers(repair_pdf_ligatures_and_symbols(full_text))
     except Exception:
         pass
@@ -80,11 +85,11 @@ def extract_raw_text_from_pdf(pdf_path: str) -> str:
     try:
         import pdfplumber
         with pdfplumber.open(pdf_path) as pdf:
-            for page in pdf:
+            for page in pdf.pages:
                 page_text = page.extract_text(layout=True) or page.extract_text()
                 if page_text:
                     full_text += page_text + "\n"
-        if len(full_text.strip()) > 100:
+        if len(full_text.strip()) > 50:
             return strip_page_headers_and_footers(repair_pdf_ligatures_and_symbols(full_text))
     except Exception:
         pass
@@ -107,11 +112,9 @@ def format_electrochem_and_ions(text: str) -> str:
     """Formats galvanic cell notation, redox species, phases, and complex ions."""
     s = text
 
-    # Strip any trailing Page footers from option text
     s = re.sub(r'\s*Page\s*\d+(\s*of\s*\d+)?\s*$', '', s, flags=re.IGNORECASE).strip()
 
     # 1. Galvanic cell phases & ions: Zn(s)|Zn2+ (aq)||Ag + (aq)|Ag(s)
-    # Match element with charge and phase: Zn2+ (aq) / Zn 2+ (aq) / Ag + (aq)
     s = re.sub(r'\b([A-Z][a-z]?)\s*(\d+)?\s*([\+\-])\s*\(aq\)', r'$\1^{\2\3}\\text{(aq)}$', s)
     s = re.sub(r'\b([A-Z][a-z]?)\s*\(aq\)', r'$\1\\text{(aq)}$', s)
     s = re.sub(r'\b([A-Z][a-z]?)\s*\(s\)', r'$\1\\text{(s)}$', s)
@@ -163,12 +166,12 @@ def sanitize_scientific_math_and_chem(text: str) -> str:
     s = format_electrochem_and_ions(s)
 
     # 6. Powers & Scientific Notation: 3 x 10^8 -> $3 \times 10^8$
-    s = re.sub(r'(\d+(?:\.\d+)?)\s*[xX\*×]\s*10\s*\^?\s*(-?\d+)', r' $\1 \\times 10^{\2}$ ', s)
-    s = re.sub(r'\b10\s*\^\s*(-?\d+)', r' $10^{\1}$ ', s)
+    s = re.sub(r'(\d+(?:\.\d+)?)\s*[xX\*×]\s*10\s*\^?\s*(-?\d+)', r' $\\1 \\times 10^{\\2}$ ', s)
+    s = re.sub(r'\b10\s*\^\s*(-?\d+)', r' $10^{\\1}$ ', s)
 
     # 7. Fractions: c/2 -> $\frac{c}{2}$, 1/3 -> $\frac{1}{3}$
-    s = re.sub(r'\b(\d+)\s*\/\s*(\d+)\b', r' $\\frac{\1}{\2}$ ', s)
-    s = re.sub(r'\b([a-zA-Z])\s*\/\s*(\d+)\b', r' $\\frac{\1}{\2}$ ', s)
+    s = re.sub(r'\b(\d+)\s*\/\s*(\d+)\b', r' $\\frac{\\1}{\\2}$ ', s)
+    s = re.sub(r'\b([a-zA-Z])\s*\/\s*(\d+)\b', r' $\\frac{\\1}{\\2}$ ', s)
 
     # 8. Integrals, Vectors, Arrows
     s = re.sub(r'[\u222B\u222C\u222D\u222E]', r' \\int ', s)
@@ -198,13 +201,12 @@ def detect_section_header(line: str) -> Optional[str]:
     return None
 
 def is_hindi_question(text: str) -> bool:
-    """Returns True if the question text is the Hindi translation counterpart."""
+    """Returns True if the question is overwhelmingly Hindi/Devanagari."""
     if not text:
         return False
     dev_chars = len(re.findall(r'[\u0900-\u097F]', text))
-    total_chars = len(re.findall(r'[\w]', text))
-    # If question contains more than 5 Devanagari characters or is > 10% Hindi -> it is the Hindi duplicate!
-    return dev_chars >= 5 or (total_chars > 0 and (dev_chars / total_chars) > 0.10)
+    eng_chars = len(re.findall(r'[a-zA-Z]', text))
+    return dev_chars > 20 and dev_chars > eng_chars
 
 def parse_questions_from_text(raw_text: str) -> List[Dict[str, Any]]:
     """Splits raw text into clean English question objects, discarding all Hindi duplicates."""
@@ -214,8 +216,8 @@ def parse_questions_from_text(raw_text: str) -> List[Dict[str, Any]]:
     current_section = 'Biology'
 
     q_start_patterns = [
-        re.compile(r'^(?:Q(?:uestion)?\.?\s*)(\d{1,3})[.):\s]+(\S.*)', re.IGNORECASE),
-        re.compile(r'^(\d{1,3})[.)]\s+(\S.*)'),
+        re.compile(r'^(?:Q(?:uestion)?\.?\s*)(\d{1,3})[.):\s]*(.*)', re.IGNORECASE),
+        re.compile(r'^(\d{1,3})[.)\s]+(.*)'),
     ]
 
     opt_pattern = re.compile(r'^[\[(]?([A-D])[\])]?[.)\s]\s*(.*)', re.IGNORECASE)
@@ -224,13 +226,8 @@ def parse_questions_from_text(raw_text: str) -> List[Dict[str, Any]]:
     def finalize_question():
         nonlocal current_q
         if current_q and current_q.get('text', '').strip():
-            # 1. CRITICAL: Discard question if it is the Hindi translated version
+            # Discard if overwhelmingly Hindi
             if is_hindi_question(current_q['text']):
-                current_q = None
-                return
-
-            # 2. Validate question text length
-            if len(current_q['text'].strip()) < 8 and len(current_q['options']) == 0:
                 current_q = None
                 return
 
