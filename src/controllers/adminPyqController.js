@@ -46,41 +46,88 @@ function detectSectionHeader(line) {
 function sanitizeAndFormatMathText(text) {
   if (!text) return '';
 
-  let str = text
-    // 1. Integrals: \u222B (∫), \u222C (∬), \u222D (∭), \u222E (∮)
+  let str = text;
+
+  // 1. Unicode superscripts & subscripts conversion
+  const superMap = {
+    '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4',
+    '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9',
+    '⁺': '+', '⁻': '-', '⁼': '=', '⁽': '(', '⁾': ')'
+  };
+  const subMap = {
+    '₀': '0', '₁': '1', '₂': '2', '₃': '3', '₄': '4',
+    '₅': '5', '₆': '6', '₇': '7', '₈': '8', '₉': '9',
+    '₊': '+', '₋': '-', '₌': '=', '₍': '(', '₎': ')'
+  };
+
+  // Replace unicode super/sub strings
+  str = str.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾]+/g, (m) => `^{${[...m].map(c => superMap[c] || c).join('')}}`);
+  str = str.replace(/[₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎]+/g, (m) => `_{${[...m].map(c => subMap[c] || c).join('')}}`);
+
+  // 2. Square roots & Radicals: √2, \u221A2, sqrt(2), root 2, \u221A(x+y)
+  str = str
+    .replace(/(?:\\u221A|√)\s*\((.*?)\)/g, ' \\sqrt{$1} ')
+    .replace(/(?:\\u221A|√)\s*([a-zA-Z0-9]+)/g, ' \\sqrt{$1} ')
+    .replace(/\b(?:sqrt|root)\s*\((.*?)\)/gi, ' \\sqrt{$1} ')
+    .replace(/\b(?:sqrt|root)\s*([a-zA-Z0-9]+)\b/gi, ' \\sqrt{$1} ')
+    .replace(/[√\u221A]/g, ' \\sqrt ');
+
+  // 3. Chemical ions and Molecular formulas (e.g. N2 2+ -> N_2^{2+}, SO4 2- -> SO_4^{2-}, O2- -> O_2^-, H3O+ -> H_3O+)
+  // Complex coordination ions: [Fe(CN)6]4- or [Fe(CN)6]^{4-}
+  str = str.replace(/\[([A-Za-z0-9\(\)]+)\]\s*(\d+)?([\+\-])/g, ' [$1]^{$2$3} ');
+  
+  // Diatomic / polyatomic ions: N2 2+, N2 2-, O2 2-, O2 +, O2 -, H3O +, NO3 -
+  str = str.replace(/\b([A-Z][a-z]?)(\d+)\s+(\d*)([\+\-])\b/g, ' $1_{$2}^{$3$4} ');
+  str = str.replace(/\b([A-Z][a-z]?)(\d+)\s*\^\s*(\d*)([\+\-])\b/g, ' $1_{$2}^{$3$4} ');
+  str = str.replace(/\b([A-Z][a-z]?)(\d+)([\+\-])\b/g, ' $1_{$2}^{$3} ');
+  
+  // Single element ions: Fe3+, Cu2+, Cl-, Na+, Ca2+
+  str = str.replace(/\b([A-Z][a-z]?)\s*(\d*)([\+\-])\b/g, ' $1^{$2$3} ');
+
+  // Common chemical molecules with numbers: H2O, CO2, SO2, NH3, CH4, C6H12O6, H2SO4, KMnO4
+  str = str.replace(/\b(H|He|Li|Be|B|C|N|O|F|Ne|Na|Mg|Al|Si|P|S|Cl|Ar|K|Ca|Sc|Ti|V|Cr|Mn|Fe|Co|Ni|Cu|Zn|Ga|Ge|As|Se|Br|Kr|Rb|Sr|Y|Zr|Nb|Mo|Tc|Ru|Rh|Pd|Ag|Cd|In|Sn|Sb|Te|I|Xe|Cs|Ba|La|Ce|Pt|Au|Hg|Pb|Bi|U)(\d+)/g, '$1_{$2}');
+
+  // 4. Powers, Exponents & Scientific Notation (e.g., 3 x 10^8, 10^-5, x^2)
+  str = str
+    .replace(/(\d+(?:\.\d+)?)\s*[xX\*×]\s*10\s*\^?\s*(-?\d+)/g, ' $1 \\times 10^{$2} ')
+    .replace(/\b10\s*\^\s*(-?\d+)/g, ' 10^{$1} ')
+    .replace(/\b([a-zA-Z0-9\)])\s*\^\s*([a-zA-Z0-9\-\+]+)/g, ' $1^{$2} ')
+    .replace(/\b([a-zA-Z])\s*_\s*([a-zA-Z0-9\-\+]+)/g, ' $1_{$2} ');
+
+  // 5. Fractions: 1/2, a/b, \frac{a}{b}
+  str = str
+    .replace(/\b(\d+)\s*\/\s*(\d+)\b/g, ' \\frac{$1}{$2} ')
+    .replace(/\b([a-zA-Z])\s*\/\s*([a-zA-Z0-9]+)\b/g, ' \\frac{$1}{$2} ');
+
+  // 6. Integrals, Summations, Products, Vectors, Limits
+  str = str
     .replace(/[\u222B\u222C\u222D\u222E]/g, ' \\int ')
     .replace(/\bint\s*([a-zA-Z0-9_\-\+\*\/\s\(\)]+)d([a-zA-Z])/gi, ' \\int $1 d$2 ')
-
-    // 2. Vectors: \u2192 (→), \u27F6 (⟶), \u21A0, or inline vector notation
-    .replace(/[\u2192\u27F6]/g, ' \\rightarrow ')
-    .replace(/\bvec\s*([a-zA-Z])/gi, ' \\vec{$1} ')
-    .replace(/\bvector\s+([a-zA-Z])\b/gi, ' \\vec{$1} ')
-
-    // 3. Division & Multiplication: \u00F7 (÷), \u00D7 (×), \u22C5 (⋅), \u2A2F (⨯)
-    .replace(/[\u00F7]/g, ' \\div ')
-    .replace(/[\u00D7\u2A2F]/g, ' \\times ')
-    .replace(/[\u22C5]/g, ' \\cdot ')
-    .replace(/\b(\d+)\s*[xX]\s*(\d+)\b/g, '$1 \\times $2')
-
-    // 4. Fractions: e.g. "1 / 2" or "a / b"
-    .replace(/(\d+)\s*\/\s*(\d+)/g, ' \\frac{$1}{$2} ')
-    .replace(/\b([a-zA-Z])\s*\/\s*([a-zA-Z0-9]+)\b/g, ' \\frac{$1}{$2} ')
-
-    // 5. Roots & Summations: \u221A (√), \u2211 (∑), \u220F (∏), \u221E (∞)
-    .replace(/[\u221A]/g, ' \\sqrt ')
     .replace(/[\u2211]/g, ' \\sum ')
     .replace(/[\u220F]/g, ' \\prod ')
     .replace(/[\u221E]/g, ' \\infty ')
+    .replace(/[\u2192\u27F6]/g, ' \\rightarrow ')
+    .replace(/[\u21CC\u21C4]/g, ' \\rightleftharpoons ')
+    .replace(/\bvec\s*([a-zA-Z])/gi, ' \\vec{$1} ')
+    .replace(/\bvector\s+([a-zA-Z])\b/gi, ' \\vec{$1} ')
+    .replace(/\blim\s*([a-zA-Z])\s*->\s*([a-zA-Z0-9\u221E]+)/gi, ' \\lim_{$1 \\to $2} ');
 
-    // 6. Inequalities: \u2264 (≤), \u2265 (≥), \u226A (≪), \u226B (≫), \u2260 (≠), \u2248 (≈)
+  // 7. Operations & Relations: ÷, ×, ⋅, ≤, ≥, ≪, ≫, ≠, ≈, ±
+  str = str
+    .replace(/[\u00F7]/g, ' \\div ')
+    .replace(/[\u00D7\u2A2F]/g, ' \\times ')
+    .replace(/[\u22C5]/g, ' \\cdot ')
     .replace(/[\u2264]/g, ' \\le ')
     .replace(/[\u2265]/g, ' \\ge ')
     .replace(/[\u226A]/g, ' \\ll ')
     .replace(/[\u226B]/g, ' \\gg ')
     .replace(/[\u2260]/g, ' \\neq ')
     .replace(/[\u2248]/g, ' \\approx ')
+    .replace(/[\u00B1]/g, ' \\pm ')
+    .replace(/[\u00B0]/g, '^{\\circ}');
 
-    // 7. Greek letters from PDF font glyphs
+  // 8. Greek letters
+  str = str
     .replace(/[\u03B1]/g, ' \\alpha ')
     .replace(/[\u03B2]/g, ' \\beta ')
     .replace(/[\u03B3]/g, ' \\gamma ')
@@ -93,16 +140,23 @@ function sanitizeAndFormatMathText(text) {
     .replace(/[\u03BB\u039B]/g, ' \\lambda ')
     .replace(/[\u03BC]/g, ' \\mu ')
     .replace(/[\u03B5]/g, ' \\epsilon ')
-    .replace(/[\u00B1]/g, ' \\pm ');
+    .replace(/[\u03D5\u03A6]/g, ' \\phi ')
+    .replace(/[\u03C8\u03A8]/g, ' \\psi ');
 
+  // 9. If the text has LaTeX commands or math sub/super expressions but isn't wrapped in $...$, wrap math chunks cleanly
+  str = str.replace(/\s+/g, ' ').trim();
+
+  // If entire string is a formula expression without $, wrap it
   if (
-    /\\(frac|int|vec|sqrt|sum|prod|times|div|alpha|beta|gamma|Delta|theta|pi|rho|sigma|omega|lambda|mu|epsilon|le|ge|ll|gg|neq|approx|pm|infty)/.test(str) &&
-    !/\$.*\$/.test(str)
+    /\\(frac|int|vec|sqrt|sum|prod|times|div|alpha|beta|gamma|Delta|theta|pi|rho|sigma|omega|lambda|mu|epsilon|phi|psi|le|ge|ll|gg|neq|approx|pm|infty|rightleftharpoons|rightarrow|circ)/.test(str) ||
+    /(\w+_\{\w+\}|\w+\^\{\w+\})/.test(str)
   ) {
-    str = `$${str.trim()}$`;
+    if (!str.includes('$')) {
+      str = `$${str}$`;
+    }
   }
 
-  return str.replace(/\s+/g, ' ').trim();
+  return str;
 }
 
 function parseQuestionsFromText(rawText) {
@@ -679,20 +733,42 @@ export const parsePdfWithGeminiVision = async (req, res) => {
 
     const pdfBase64 = req.file.buffer.toString('base64');
 
-    const prompt = `You are an expert exam paper parser for IISER IAT, NISER NEST, and JEE Advanced math, physics, chemistry, and biology papers.
-Analyze this PDF document and extract ALL questions into structured JSON.
-CRITICAL MANDATE FOR MATHEMATICS & FORMULAS:
-1. Convert ALL math symbols, integrals (\\int), vectors (\\vec{v}), fractions (\\frac{a}{b}), division (\\div), multiplication (\\times), square roots (\\sqrt{x}), summation (\\sum), limits (\\lim), and matrices into valid LaTeX format wrapped in KaTeX inline delimiters ($...$).
-2. Return ONLY a valid JSON object matching this exact JSON schema:
+    const prompt = `You are a world-class scientific exam paper parser for IISER IAT, NISER NEST, ISI, CMI, and JEE Advanced papers (Physics, Chemistry, Mathematics, Biology).
+Analyze this PDF document and extract ALL questions into structured JSON with 100% mathematical and chemical formula precision.
+
+CRITICAL MATHEMATICS, CHEMISTRY & LATEX FORMULA MANDATE:
+1. CHEMISTRY IONS & FORMULAS:
+   - Convert all chemical ions, charges, and subscripts into valid LaTeX format wrapped in $...$.
+   - Example: N2 2+ must be converted to "$N_2^{2+}$" (NEVER write "N2 2+" or "and two").
+   - Example: SO4 2- -> "$SO_4^{2-}$", O2- -> "$O_2^-$", H3O+ -> "$H_3O^+$", [Fe(CN)6]4- -> "$[Fe(CN)_6]^{4-}$".
+   - Chemical equations with reaction arrows: "$\\text{N}_2 + 3\\text{H}_2 \\rightleftharpoons 2\\text{NH}_3$".
+
+2. SQUARE ROOTS & RADICALS:
+   - Convert all square roots to LaTeX "\\sqrt{...}".
+   - Example: root 2 or √2 must be converted to "$\\sqrt{2}$".
+   - Example: √(x^2 + y^2) -> "$\\sqrt{x^2 + y^2}$", root 3 / 2 -> "$\\frac{\\sqrt{3}}{2}$".
+
+3. POWERS, EXPONENTS & SCIENTIFIC NOTATION:
+   - Example: 3 x 10^8 -> "$3 \\times 10^8$", 10^-5 -> "$10^{-5}$", x^2 -> "$x^2$", x_1 -> "$x_1$".
+
+4. FRACTIONS, INTEGRALS, VECTORS, MATRICES & SUMS:
+   - Fractions: a/b -> "$\\frac{a}{b}$".
+   - Integrals: "$\\int_{a}^{b} f(x) dx$".
+   - Vectors: "$\\vec{v}$" or "$\\hat{i} + \\hat{j}$".
+   - Matrices: "$\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}$".
+   - Limits: "$\\lim_{x \\to 0}$".
+   - Sums: "$\\sum_{i=1}^{n} x_i$".
+
+5. Return ONLY a valid JSON object matching this exact JSON schema (no markdown wrap or extra commentary):
 {
   "questions": [
     {
       "questionNumber": 1,
-      "section": "Physics", // Must be Physics, Chemistry, Mathematics, or Biology
-      "type": "MCQ",
-      "text": "Question text with $LaTeX$ formulas",
-      "options": ["Option A text", "Option B text", "Option C text", "Option D text"],
-      "correctAnswer": "A"
+      "section": "Physics", // Exactly one of: "Physics", "Chemistry", "Mathematics", "Biology"
+      "type": "MCQ", // "MCQ" | "MSQ" | "Numerical"
+      "text": "Question statement containing accurate $LaTeX$ math & chemistry formulas",
+      "options": ["Option A with $LaTeX$", "Option B with $LaTeX$", "Option C with $LaTeX$", "Option D with $LaTeX$"],
+      "correctAnswer": "A" // "A", "B", "C", or "D"
     }
   ]
 }`;
