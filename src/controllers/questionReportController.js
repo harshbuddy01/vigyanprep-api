@@ -9,30 +9,17 @@ import { supabase } from '../db/supabase.js';
 export const submitQuestionReport = async (req, res) => {
   try {
     const { testId, questionId, reason, proofUrl } = req.body;
-    const studentId = req.user?.id;
+    const studentId = req.user?.id || '00000000-0000-0000-0000-000000000001';
 
     if (!testId || !questionId || !reason) {
       return res.status(400).json({ error: 'testId, questionId, and reason are required' });
     }
 
-    // 🛡️ Anti-Spam Check 1: Reason length >= 20 characters
+    // 🛡️ Anti-Spam Check 1: Reason length >= 10 characters
     const cleanReason = String(reason).trim();
-    if (cleanReason.length < 20) {
+    if (cleanReason.length < 10) {
       return res.status(400).json({
-        error: 'Reason description must be at least 20 characters long.'
-      });
-    }
-
-    // 🛡️ Anti-Spam Check 2: Max 5 reports per student per test
-    const { count } = await supabase
-      .from('challenges')
-      .select('*', { count: 'exact', head: true })
-      .eq('test_id', testId)
-      .eq('student_id', studentId);
-
-    if (count && count >= 5) {
-      return res.status(429).json({
-        error: 'You have reached the maximum limit of 5 reports per test.'
+        error: 'Reason description must be at least 10 characters long.'
       });
     }
 
@@ -43,12 +30,33 @@ export const submitQuestionReport = async (req, res) => {
         question_id: questionId,
         student_id: studentId,
         reason: cleanReason,
+        proof_image_url: proofUrl || null,
         status: 'pending'
       })
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      // If student_id foreign key constraint triggers with guest ID, insert without student_id
+      const { data: retryReport, error: retryErr } = await supabase
+        .from('challenges')
+        .insert({
+          test_id: testId,
+          question_id: questionId,
+          reason: cleanReason,
+          proof_image_url: proofUrl || null,
+          status: 'pending'
+        })
+        .select()
+        .single();
+
+      if (retryErr) throw retryErr;
+      return res.status(200).json({
+        success: true,
+        message: 'Question report submitted successfully',
+        report: retryReport
+      });
+    }
 
     return res.status(200).json({
       success: true,
