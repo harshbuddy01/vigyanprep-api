@@ -1,5 +1,12 @@
 import express from 'express';
-import { getStudentResult, updateResultStages, calculateTestRanks, releaseResults } from '../controllers/stagedResultController.js';
+import {
+  getStudentResult,
+  updateResultStages,
+  calculateTestRanks,
+  releaseResults,
+  getTestAttemptsForAdmin,
+  getAttemptDetailForAdmin
+} from '../controllers/stagedResultController.js';
 import { verifyAuth } from '../middlewares/auth.js';
 import { verifyAdminAuth } from '../middlewares/adminAuth.js';
 
@@ -12,5 +19,9 @@ router.post('/admin/test/:testId/calculate-ranks', verifyAdminAuth, calculateTes
 // Clean routes for admin UI buttons
 router.post('/calculate/:testId', verifyAdminAuth, calculateTestRanks);
 router.post('/release/:testId', verifyAdminAuth, releaseResults);
+
+// Live student attempt inspection for Admin
+router.get('/admin/attempts/:testId', verifyAdminAuth, getTestAttemptsForAdmin);
+router.get('/admin/attempt-detail/:attemptId', verifyAdminAuth, getAttemptDetailForAdmin);
 
 export default router;

@@ -342,3 +342,160 @@ export const releaseResults = async (req, res) => {
     return res.status(500).json({ error: 'Failed to release results', details: err.message });
   }
 };
+
+/**
+ * Admin: Get all student attempts & live counts for a test
+ */
+export const getTestAttemptsForAdmin = async (req, res) => {
+  try {
+    const { testId } = req.params;
+    if (!testId) return res.status(400).json({ error: 'testId is required' });
+
+    // Fetch all attempts for this test
+    const { data: attempts, error: attErr } = await supabase
+      .from('attempts')
+      .select('*')
+      .eq('test_id', testId)
+      .order('started_at', { ascending: false });
+
+    if (attErr) throw attErr;
+
+    // Fetch answers count per attempt
+    const attemptIds = (attempts || []).map(a => a.id);
+    let answerCounts = {};
+    if (attemptIds.length > 0) {
+      const { data: answers } = await supabase
+        .from('attempt_answers')
+        .select('attempt_id, question_id')
+        .in('attempt_id', attemptIds);
+
+      (answers || []).forEach(ans => {
+        answerCounts[ans.attempt_id] = (answerCounts[ans.attempt_id] || 0) + 1;
+      });
+    }
+
+    // Fetch student details from users / subscriptions
+    const studentIds = (attempts || []).map(a => a.student_id).filter(Boolean);
+    let studentsMap = {};
+    if (studentIds.length > 0) {
+      const { data: users } = await supabase
+        .from('users')
+        .select('id, email, full_name, name')
+        .in('id', studentIds);
+
+      (users || []).forEach(u => {
+        studentsMap[u.id] = { name: u.full_name || u.name || 'Student', email: u.email };
+      });
+
+      const { data: subs } = await supabase
+        .from('subscriptions')
+        .select('student_id, student_email, student_name')
+        .in('student_id', studentIds);
+
+      (subs || []).forEach(s => {
+        if (!studentsMap[s.student_id] || !studentsMap[s.student_id].email) {
+          studentsMap[s.student_id] = { name: s.student_name || 'Student', email: s.student_email };
+        }
+      });
+    }
+
+    const enriched = (attempts || []).map(a => ({
+      id: a.id,
+      student_id: a.student_id,
+      student_name: studentsMap[a.student_id]?.name || 'Student',
+      student_email: studentsMap[a.student_id]?.email || 'N/A',
+      status: a.status,
+      started_at: a.started_at,
+      submitted_at: a.submitted_at,
+      warning_count: a.warning_count || 0,
+      attempted_count: answerCounts[a.id] || 0
+    }));
+
+    return res.status(200).json({
+      success: true,
+      attempts: enriched,
+      count: enriched.length
+    });
+  } catch (err) {
+    console.error('getTestAttemptsForAdmin error:', err);
+    return res.status(500).json({ error: 'Failed to fetch test attempts', details: err.message });
+  }
+};
+
+/**
+ * Admin: Get complete candidate response sheet for an attempt
+ */
+export const getAttemptDetailForAdmin = async (req, res) => {
+  try {
+    const { attemptId } = req.params;
+    if (!attemptId) return res.status(400).json({ error: 'attemptId is required' });
+
+    const { data: attempt, error: attErr } = await supabase
+      .from('attempts')
+      .select('*')
+      .eq('id', attemptId)
+      .single();
+
+    if (attErr || !attempt) return res.status(404).json({ error: 'Attempt not found' });
+
+    const { data: test } = await supabase
+      .from('tests')
+      .select('id, title, exam_type')
+      .eq('id', attempt.test_id)
+      .single();
+
+    const { data: answers } = await supabase
+      .from('attempt_answers')
+      .select('*')
+      .eq('attempt_id', attemptId);
+
+    const answersMap = {};
+    (answers || []).forEach(a => { answersMap[a.question_id] = a.answer; });
+
+    const { data: questions } = await supabase
+      .from('questions')
+      .select('id, question_number, section, question_text, text, options, correct_answer, solution_explanation, image_url')
+      .eq('test_id', attempt.test_id)
+      .order('question_number', { ascending: true });
+
+    // Lookup student name/email
+    let studentName = 'Candidate';
+    let studentEmail = 'N/A';
+
+    if (attempt.student_id) {
+      const { data: user } = await supabase.from('users').select('email, full_name, name').eq('id', attempt.student_id).maybeSingle();
+      if (user) {
+        studentName = user.full_name || user.name || studentName;
+        studentEmail = user.email || studentEmail;
+      }
+    }
+
+    const enrichedQuestions = (questions || []).map(q => {
+      const studentAns = answersMap[q.id] || null;
+      const correctAns = q.correct_answer || null;
+      let status = 'unattempted';
+      if (studentAns) {
+        status = (correctAns && studentAns === correctAns) ? 'correct' : 'incorrect';
+      }
+      return {
+        ...q,
+        studentAnswer: studentAns,
+        status
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      attempt,
+      studentName,
+      studentEmail,
+      test,
+      questions: enrichedQuestions,
+      attempted_count: Object.keys(answersMap).length,
+      total_questions: (questions || []).length
+    });
+  } catch (err) {
+    console.error('getAttemptDetailForAdmin error:', err);
+    return res.status(500).json({ error: 'Failed to fetch attempt details', details: err.message });
+  }
+};
