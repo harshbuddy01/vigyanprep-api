@@ -464,11 +464,15 @@ export const getAttemptDetailForAdmin = async (req, res) => {
     const answersMap = {};
     (answers || []).forEach(a => { answersMap[a.question_id] = a.answer; });
 
-    const { data: questions } = await supabase
+    const { data: questions, error: qErr } = await supabase
       .from('questions')
-      .select('id, question_number, section, question_text, text, options, correct_answer, model_answer, image_url')
+      .select('id, question_number, section, question_text, options, correct_answer, model_answer, image_url')
       .eq('test_id', attempt.test_id)
       .order('question_number', { ascending: true });
+
+    if (qErr) {
+      console.error('Questions fetch error in getAttemptDetailForAdmin:', qErr);
+    }
 
     // Lookup student name/email
     let studentName = 'Candidate';
