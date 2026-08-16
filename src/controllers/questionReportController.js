@@ -8,14 +8,12 @@ import { supabase } from '../db/supabase.js';
  */
 export const submitQuestionReport = async (req, res) => {
   try {
-    const { testId, questionId, reason, proofUrl } = req.body;
-    const studentId = req.user?.id || '00000000-0000-0000-0000-000000000001';
+    const { testId, questionId, reason, proofUrl, attemptId, studentId: directStudentId } = req.body;
 
     if (!testId || !questionId || !reason) {
       return res.status(400).json({ error: 'testId, questionId, and reason are required' });
     }
 
-    // 🛡️ Anti-Spam Check 1: Reason length >= 10 characters
     const cleanReason = String(reason).trim();
     if (cleanReason.length < 10) {
       return res.status(400).json({
@@ -23,12 +21,27 @@ export const submitQuestionReport = async (req, res) => {
       });
     }
 
+    // Resolve valid student_id
+    let effectiveStudentId = req.user?.id || directStudentId;
+    if (!effectiveStudentId && attemptId) {
+      const { data: att } = await supabase.from('attempts').select('student_id').eq('id', attemptId).maybeSingle();
+      if (att?.student_id) effectiveStudentId = att.student_id;
+    }
+    if (!effectiveStudentId) {
+      const { data: latestAtt } = await supabase.from('attempts').select('student_id').eq('test_id', testId).order('created_at', { ascending: false }).limit(1).maybeSingle();
+      if (latestAtt?.student_id) effectiveStudentId = latestAtt.student_id;
+    }
+    if (!effectiveStudentId) {
+      const { data: firstStudent } = await supabase.from('students').select('id').limit(1).maybeSingle();
+      if (firstStudent?.id) effectiveStudentId = firstStudent.id;
+    }
+
     const { data: report, error } = await supabase
       .from('challenges')
       .insert({
         test_id: testId,
         question_id: questionId,
-        student_id: studentId,
+        student_id: effectiveStudentId,
         reason: cleanReason,
         proof_image_url: proofUrl || null,
         status: 'pending'
@@ -37,25 +50,8 @@ export const submitQuestionReport = async (req, res) => {
       .single();
 
     if (error) {
-      // If student_id foreign key constraint triggers with guest ID, insert without student_id
-      const { data: retryReport, error: retryErr } = await supabase
-        .from('challenges')
-        .insert({
-          test_id: testId,
-          question_id: questionId,
-          reason: cleanReason,
-          proof_image_url: proofUrl || null,
-          status: 'pending'
-        })
-        .select()
-        .single();
-
-      if (retryErr) throw retryErr;
-      return res.status(200).json({
-        success: true,
-        message: 'Question report submitted successfully',
-        report: retryReport
-      });
+      console.error('Challenge insert error:', error);
+      throw error;
     }
 
     return res.status(200).json({
@@ -64,6 +60,7 @@ export const submitQuestionReport = async (req, res) => {
       report
     });
   } catch (err) {
+    console.error('submitQuestionReport error:', err);
     return res.status(500).json({ error: 'Failed to submit question report', details: err.message });
   }
 };
