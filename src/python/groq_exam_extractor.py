@@ -156,6 +156,8 @@ def parse_pdf_with_groq(pdf_path: str, api_key: str = GROQ_API_KEY) -> List[Dict
 
     return all_questions
 
+from pdf_diagram_cropper import crop_and_extract_diagrams
+
 def main():
     if len(sys.argv) < 2:
         print(json.dumps({"success": False, "error": "No PDF file path provided"}))
@@ -169,12 +171,17 @@ def main():
         sys.exit(1)
 
     try:
+        # 1. Extract diagrams and reaction schemes using PyMuPDF Vector Cropper
+        diagram_res = crop_and_extract_diagrams(pdf_path)
+        diag_map = diagram_res.get("diagramMap", {})
+
+        # 2. Extract structured English questions using Groq AI
         raw_questions = parse_pdf_with_groq(pdf_path, api_key=api_key)
         if not raw_questions:
             print(json.dumps({"success": False, "error": "Groq returned no questions from this PDF."}))
             sys.exit(1)
 
-        # Renumber per section
+        # Renumber per section and attach diagrams
         section_counters = {"Physics": 0, "Chemistry": 0, "Mathematics": 0, "Biology": 0}
         formatted_questions = []
 
@@ -184,6 +191,11 @@ def main():
                 sec = "Physics"
                 q["section"] = "Physics"
             section_counters[sec] += 1
+
+            # Estimate approximate page number for diagram linking
+            approx_page = max(1, min(len(diag_map), (idx // 4) + 1))
+            page_diags = diag_map.get(approx_page, [])
+            assigned_img = page_diags[0]["url"] if len(page_diags) > 0 and ("reaction" in q.get("question_text", "").lower() or "structure" in q.get("question_text", "").lower() or "diagram" in q.get("question_text", "").lower() or "circuit" in q.get("question_text", "").lower() or "figure" in q.get("question_text", "").lower()) else ""
 
             formatted_questions.append({
                 "tempId": f"groq_{sec[:3].lower()}_{section_counters[sec]}_{idx + 1}",
@@ -196,17 +208,18 @@ def main():
                 "options": q.get("options", []),
                 "correctAnswer": q.get("correct_answer", "A"),
                 "correct_answer": q.get("correct_answer", "A"),
-                "imageUrl": "",
+                "imageUrl": assigned_img,
                 "status": "draft_review"
             })
 
         result = {
             "success": True,
-            "source": "groq_llama_3.3_70b_engine",
+            "source": "groq_llama_3.3_70b_and_vector_cropper",
             "questions": formatted_questions,
             "sectionCounts": section_counters,
             "totalQuestions": len(formatted_questions),
-            "message": f"⚡ Groq AI (Llama 3.3 70B) successfully extracted {len(formatted_questions)} clean English questions with LaTeX formulas and chemical structures!"
+            "totalDiagramsCropped": diagram_res.get("totalImages", 0),
+            "message": f"⚡ Groq AI (Llama 3.3 70B) + PyMuPDF Cropper extracted {len(formatted_questions)} clean English questions and {diagram_res.get('totalImages', 0)} high-res reaction diagrams!"
         }
         print(json.dumps(result))
 
