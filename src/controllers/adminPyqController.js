@@ -34,12 +34,12 @@ function classifySubject(text) {
 }
 
 function detectSectionHeader(line) {
-  if (line.split(/\s+/).length > 8) return null;
+  if (line.split(/\s+/).length > 10) return null;
   const u = line.trim().toUpperCase();
-  if (/\bPHYSICS\b/.test(u)) return 'Physics';
-  if (/\bCHEMISTR/.test(u)) return 'Chemistry';
-  if (/\bMATH/.test(u)) return 'Mathematics';
-  if (/\bBIOLOG/.test(u)) return 'Biology';
+  if (/(?:SECTION\s*[-–—:]*\s*\d*\s*[-–—:]*\s*BIOLOGY|PART\s*[-–—:]*\s*\d*\s*[-–—:]*\s*BIOLOGY|\bBIOLOGY\b|\bBIOLOGICAL\b)/.test(u)) return 'Biology';
+  if (/(?:SECTION\s*[-–—:]*\s*\d*\s*[-–—:]*\s*CHEMISTRY|PART\s*[-–—:]*\s*\d*\s*[-–—:]*\s*CHEMISTRY|\bCHEMISTRY\b|\bCHEMICAL\b)/.test(u)) return 'Chemistry';
+  if (/(?:SECTION\s*[-–—:]*\s*\d*\s*[-–—:]*\s*MATHEMATICS|PART\s*[-–—:]*\s*\d*\s*[-–—:]*\s*MATHEMATICS|\bMATHEMATICS\b|\bMATHS\b|\bMATH\b)/.test(u)) return 'Mathematics';
+  if (/(?:SECTION\s*[-–—:]*\s*\d*\s*[-–—:]*\s*PHYSICS|PART\s*[-–—:]*\s*\d*\s*[-–—:]*\s*PHYSICS|\bPHYSICS\b|\bPHYSICAL\b)/.test(u)) return 'Physics';
   return null;
 }
 
@@ -60,103 +60,53 @@ function sanitizeAndFormatMathText(text) {
     '₊': '+', '₋': '-', '₌': '=', '₍': '(', '₎': ')'
   };
 
-  // Replace unicode super/sub strings
   str = str.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾]+/g, (m) => `^{${[...m].map(c => superMap[c] || c).join('')}}`);
   str = str.replace(/[₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎]+/g, (m) => `_{${[...m].map(c => subMap[c] || c).join('')}}`);
 
-  // 2. Square roots & Radicals: √2, \u221A2, sqrt(2), root 2, \u221A(x+y)
+  // 2. Square roots & Radicals: √2, \u221A2, sqrt(2), root 2
   str = str
-    .replace(/(?:\\u221A|√)\s*\((.*?)\)/g, ' \\sqrt{$1} ')
-    .replace(/(?:\\u221A|√)\s*([a-zA-Z0-9]+)/g, ' \\sqrt{$1} ')
-    .replace(/\b(?:sqrt|root)\s*\((.*?)\)/gi, ' \\sqrt{$1} ')
-    .replace(/\b(?:sqrt|root)\s*([a-zA-Z0-9]+)\b/gi, ' \\sqrt{$1} ')
+    .replace(/(?:\\u221A|√)\s*\((.*?)\)/g, ' $\\sqrt{$1}$ ')
+    .replace(/(?:\\u221A|√)\s*([a-zA-Z0-9]+)/g, ' $\\sqrt{$1}$ ')
+    .replace(/\b(?:sqrt|root)\s*\((.*?)\)/gi, ' $\\sqrt{$1}$ ')
+    .replace(/\b(?:sqrt|root)\s*([a-zA-Z0-9]+)\b/gi, ' $\\sqrt{$1}$ ')
     .replace(/[√\u221A]/g, ' \\sqrt ');
 
-  // 3. Chemical ions and Molecular formulas (e.g. N2 2+ -> N_2^{2+}, SO4 2- -> SO_4^{2-}, O2- -> O_2^-, H3O+ -> H_3O+)
-  // Complex coordination ions: [Fe(CN)6]4- or [Fe(CN)6]^{4-}
-  str = str.replace(/\[([A-Za-z0-9\(\)]+)\]\s*(\d+)?([\+\-])/g, ' [$1]^{$2$3} ');
-  
-  // Diatomic / polyatomic ions: N2 2+, N2 2-, O2 2-, O2 +, O2 -, H3O +, NO3 -
-  str = str.replace(/\b([A-Z][a-z]?)(\d+)\s+(\d*)([\+\-])\b/g, ' $1_{$2}^{$3$4} ');
-  str = str.replace(/\b([A-Z][a-z]?)(\d+)\s*\^\s*(\d*)([\+\-])\b/g, ' $1_{$2}^{$3$4} ');
-  str = str.replace(/\b([A-Z][a-z]?)(\d+)([\+\-])\b/g, ' $1_{$2}^{$3} ');
-  
-  // Single element ions: Fe3+, Cu2+, Cl-, Na+, Ca2+
-  str = str.replace(/\b([A-Z][a-z]?)\s*(\d*)([\+\-])\b/g, ' $1^{$2$3} ');
+  // 3. Chemical Species, Ions & Coordination Complexes (Token-isolated):
+  // NH+ 4 -> $NH_4^+$, BH- 4 -> $BH_4^-$, NO+ 2 -> $NO_2^+$
+  str = str.replace(/\b([A-Z][a-z]?H?)\s*([\+\-])\s*(\d+)\b/g, '$$$1_{$3}^{$2}$$');
+  str = str.replace(/\b([A-Z][a-z]?H?)\s*(\d+)\s*\^?\s*(\d*)([\+\-])\b/g, '$$$1_{$2}^{$3$4}$$');
+  str = str.replace(/\b([A-Z][a-z]?H?)\s*(\d+)([\+\-])\b/g, '$$$1_{$2}^{$3}$$');
+  str = str.replace(/\[([A-Za-z0-9\(\)]+)\]\s*(\d+)?([\+\-])/g, '$$[$1]^{$2$3}$$');
 
-  // Common chemical molecules with numbers: H2O, CO2, SO2, NH3, CH4, C6H12O6, H2SO4, KMnO4
-  str = str.replace(/\b(H|He|Li|Be|B|C|N|O|F|Ne|Na|Mg|Al|Si|P|S|Cl|Ar|K|Ca|Sc|Ti|V|Cr|Mn|Fe|Co|Ni|Cu|Zn|Ga|Ge|As|Se|Br|Kr|Rb|Sr|Y|Zr|Nb|Mo|Tc|Ru|Rh|Pd|Ag|Cd|In|Sn|Sb|Te|I|Xe|Cs|Ba|La|Ce|Pt|Au|Hg|Pb|Bi|U)(\d+)/g, '$1_{$2}');
+  // Common chemical molecules: N2O, NO2, H2O, CO2, SO2, NH3, O3, O2, N2
+  const chemTokens = /\b(N2O|NO2|NO3|H2O|CO2|SO2|SO3|SO4|NH3|NH4|BH4|H3O|CH4|C2H6|C6H6|C6H12O6|H2SO4|HNO3|HCl|NaOH|KOH|KMnO4|O3|O2|N2|H2|Cl2|Br2|I2|F2)\b/g;
+  str = str.replace(chemTokens, (m, token) => {
+    const sub = token.replace(/([A-Za-z])(\d+)/g, '$1_{$2}');
+    return `$${sub}$`;
+  });
 
-  // 4. Powers, Exponents & Scientific Notation (e.g., 3 x 10^8, 10^-5, x^2)
+  // 4. Powers, Exponents & Scientific Notation
   str = str
-    .replace(/(\d+(?:\.\d+)?)\s*[xX\*×]\s*10\s*\^?\s*(-?\d+)/g, ' $1 \\times 10^{$2} ')
-    .replace(/\b10\s*\^\s*(-?\d+)/g, ' 10^{$1} ')
-    .replace(/\b([a-zA-Z0-9\)])\s*\^\s*([a-zA-Z0-9\-\+]+)/g, ' $1^{$2} ')
-    .replace(/\b([a-zA-Z])\s*_\s*([a-zA-Z0-9\-\+]+)/g, ' $1_{$2} ');
+    .replace(/(\d+(?:\.\d+)?)\s*[xX\*×]\s*10\s*\^?\s*(-?\d+)/g, ' $$$1 \\times 10^{$2}$$ ')
+    .replace(/\b10\s*\^\s*(-?\d+)/g, ' $$10^{$1}$$ ')
+    .replace(/\b([a-zA-Z])\s*\^\s*([a-zA-Z0-9\-\+]+)\b/g, '$$$1^{$2}$$')
+    .replace(/\b([a-zA-Z])\s*_\s*([a-zA-Z0-9\-\+]+)\b/g, '$$$1_{$2}$$');
 
-  // 5. Fractions: 1/2, a/b, \frac{a}{b}
+  // 5. Fractions: 1/2 -> $\frac{1}{2}$
   str = str
-    .replace(/\b(\d+)\s*\/\s*(\d+)\b/g, ' \\frac{$1}{$2} ')
-    .replace(/\b([a-zA-Z])\s*\/\s*([a-zA-Z0-9]+)\b/g, ' \\frac{$1}{$2} ');
+    .replace(/\b(\d+)\s*\/\s*(\d+)\b/g, ' $\\frac{$1}{$2}$ ')
+    .replace(/\b([a-zA-Z])\s*\/\s*([a-zA-Z0-9]+)\b/g, ' $\\frac{$1}{$2}$ ');
 
-  // 6. Integrals, Summations, Products, Vectors, Limits
+  // 6. Integrals, Greek, Operations
   str = str
     .replace(/[\u222B\u222C\u222D\u222E]/g, ' \\int ')
-    .replace(/\bint\s*([a-zA-Z0-9_\-\+\*\/\s\(\)]+)d([a-zA-Z])/gi, ' \\int $1 d$2 ')
-    .replace(/[\u2211]/g, ' \\sum ')
-    .replace(/[\u220F]/g, ' \\prod ')
-    .replace(/[\u221E]/g, ' \\infty ')
-    .replace(/[\u2192\u27F6]/g, ' \\rightarrow ')
-    .replace(/[\u21CC\u21C4]/g, ' \\rightleftharpoons ')
-    .replace(/\bvec\s*([a-zA-Z])/gi, ' \\vec{$1} ')
-    .replace(/\bvector\s+([a-zA-Z])\b/gi, ' \\vec{$1} ')
-    .replace(/\blim\s*([a-zA-Z])\s*->\s*([a-zA-Z0-9\u221E]+)/gi, ' \\lim_{$1 \\to $2} ');
-
-  // 7. Operations & Relations: ÷, ×, ⋅, ≤, ≥, ≪, ≫, ≠, ≈, ±
-  str = str
-    .replace(/[\u00F7]/g, ' \\div ')
-    .replace(/[\u00D7\u2A2F]/g, ' \\times ')
-    .replace(/[\u22C5]/g, ' \\cdot ')
-    .replace(/[\u2264]/g, ' \\le ')
-    .replace(/[\u2265]/g, ' \\ge ')
-    .replace(/[\u226A]/g, ' \\ll ')
-    .replace(/[\u226B]/g, ' \\gg ')
-    .replace(/[\u2260]/g, ' \\neq ')
-    .replace(/[\u2248]/g, ' \\approx ')
-    .replace(/[\u00B1]/g, ' \\pm ')
+    .replace(/[\u21CC\u21C4]/g, ' $\\rightleftharpoons$ ')
+    .replace(/[\u2192\u27F6]/g, ' $\\rightarrow$ ')
+    .replace(/[\u00B1]/g, ' $\\pm$ ')
     .replace(/[\u00B0]/g, '^{\\circ}');
 
-  // 8. Greek letters
-  str = str
-    .replace(/[\u03B1]/g, ' \\alpha ')
-    .replace(/[\u03B2]/g, ' \\beta ')
-    .replace(/[\u03B3]/g, ' \\gamma ')
-    .replace(/[\u03B4\u0394]/g, ' \\Delta ')
-    .replace(/[\u03B8\u0398]/g, ' \\theta ')
-    .replace(/[\u03C0\u03A0]/g, ' \\pi ')
-    .replace(/[\u03C1]/g, ' \\rho ')
-    .replace(/[\u03C3\u03A3]/g, ' \\sigma ')
-    .replace(/[\u03C9\u03A9]/g, ' \\omega ')
-    .replace(/[\u03BB\u039B]/g, ' \\lambda ')
-    .replace(/[\u03BC]/g, ' \\mu ')
-    .replace(/[\u03B5]/g, ' \\epsilon ')
-    .replace(/[\u03D5\u03A6]/g, ' \\phi ')
-    .replace(/[\u03C8\u03A8]/g, ' \\psi ');
-
-  // 9. If the text has LaTeX commands or math sub/super expressions but isn't wrapped in $...$, wrap math chunks cleanly
-  str = str.replace(/\s+/g, ' ').trim();
-
-  // If entire string is a formula expression without $, wrap it
-  if (
-    /\\(frac|int|vec|sqrt|sum|prod|times|div|alpha|beta|gamma|Delta|theta|pi|rho|sigma|omega|lambda|mu|epsilon|phi|psi|le|ge|ll|gg|neq|approx|pm|infty|rightleftharpoons|rightarrow|circ)/.test(str) ||
-    /(\w+_\{\w+\}|\w+\^\{\w+\})/.test(str)
-  ) {
-    if (!str.includes('$')) {
-      str = `$${str}$`;
-    }
-  }
-
-  return str;
+  str = str.replace(/\${2,}/g, '$').replace(/\$\$/g, '$ $');
+  return str.replace(/\s+/g, ' ').trim();
 }
 
 function parseQuestionsFromText(rawText) {
