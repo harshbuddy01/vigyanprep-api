@@ -121,9 +121,9 @@ def sanitize_scientific_math_and_chem(text: str) -> str:
 
     # 3. Chemical Species, Ions & Coordination Complexes (Token-isolated):
     # NH+ 4 -> $NH_4^+$, BH- 4 -> $BH_4^-$, NO+ 2 -> $NO_2^+$, NH- 2 -> $NH_2^-$
-    s = re.sub(r'\b([A-Z][a-z]?H?)\s*([\+\-])\s*(\d+)\b', r'$\1_{\3}^{\2}$', s)
-    s = re.sub(r'\b([A-Z][a-z]?H?)\s*(\d+)\s*\^?\s*(\d*)([\+\-])\b', r'$\1_{\2}^{\3\4}$', s)
-    s = re.sub(r'\b([A-Z][a-z]?H?)\s*(\d+)([\+\-])\b', r'$\1_{\2}^{\3}$', s)
+    s = re.sub(r'\b([A-Z][a-zA-Z0-9]*)\s*([\+\-])\s*(\d+)\b', r'$\1_{\3}^{\2}$', s)
+    s = re.sub(r'\b([A-Z][a-zA-Z0-9]*)\s*(\d+)\s*\^?\s*(\d*)([\+\-])\b', r'$\1_{\2}^{\3\4}$', s)
+    s = re.sub(r'\b([A-Z][a-zA-Z0-9]*)\s*(\d+)([\+\-])\b', r'$\1_{\2}^{\3}$', s)
     s = re.sub(r'\[([A-Za-z0-9\(\)]+)\]\s*(\d+)?([\+\-])', r'$[\1]^{\2\3}$', s)
 
     # Subscript common molecules without swallowing connectors like "and", "or", "to"
