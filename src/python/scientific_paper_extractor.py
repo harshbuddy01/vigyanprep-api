@@ -1,42 +1,57 @@
 #!/usr/bin/env python3
 """
 Scientific Paper & Mathematical Formula Extractor for VigyanPrep (IISER IAT, NISER NEST, ISI, CMI)
-High-Precision Engine:
-1. Automatic Hindi Duplicate Elimination (Extracts ONLY pure English 80-question paper).
-2. Electrochemistry, Galvanic Cell & Molecular Ion Formatter.
-3. PDF Ligature Repair (di↵erent -> different, e↵ect -> effect).
-4. Page Footer & Header Stripping (Removes "Page 2", "Page 6", "Code A").
-5. Exact 20/20/20/20 Section Splitting.
+High-Precision Engine.
 """
 
 import sys
 import os
+import json
+import re
+from typing import List, Dict, Any, Optional
 
 # Ensure current script directory is on sys.path
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 if CURRENT_DIR not in sys.path:
     sys.path.insert(0, CURRENT_DIR)
 
-import json
-import re
-from typing import List, Dict, Any, Optional
+def is_mostly_hindi(text: str) -> bool:
+    """Returns True if the text has > 30% Devanagari characters."""
+    if not text.strip():
+        return False
+    dev_chars = len(re.findall(r'[\u0900-\u097F]', text))
+    total_chars = len(text.replace(" ", ""))
+    if total_chars == 0:
+        return False
+    return (dev_chars / total_chars) > 0.3
+
+def remove_hindi_lines(text: str) -> str:
+    """Drops entire lines where Devanagari ratio > 30%."""
+    lines = text.split('\n')
+    cleaned_lines = []
+    for line in lines:
+        if not is_mostly_hindi(line):
+            cleaned_lines.append(line)
+    return "\n".join(cleaned_lines)
 
 def repair_pdf_ligatures_and_symbols(text: str) -> str:
     """Repairs common broken font ligatures and corrupted symbols in scientific PDFs."""
     if not text:
         return ""
     s = text
-    # 1. Broken ligatures: ↵, \u21B5, \uFFFD, \u001F
-    s = re.sub(r'di[↵\u21B5\uFFFD\u001F]erent', 'different', s, flags=re.IGNORECASE)
-    s = re.sub(r'e[↵\u21B5\uFFFD\u001F]ect', 'effect', s, flags=re.IGNORECASE)
-    s = re.sub(r'e[↵\u21B5\uFFFD\u001F]ective', 'effective', s, flags=re.IGNORECASE)
-    s = re.sub(r'co[↵\u21B5\uFFFD\u001F]ecient|coecient', 'coefficient', s, flags=re.IGNORECASE)
-    s = re.sub(r'su[↵\u21B5\uFFFD\u001F]cient|sucient', 'sufficient', s, flags=re.IGNORECASE)
-    s = re.sub(r'di[↵\u21B5\uFFFD\u001F]usion', 'diffusion', s, flags=re.IGNORECASE)
-    s = re.sub(r'di[↵\u21B5\uFFFD\u001F]raction', 'diffraction', s, flags=re.IGNORECASE)
-    s = re.sub(r'o[↵\u21B5\uFFFD\u001F]spring', 'offspring', s, flags=re.IGNORECASE)
-    s = re.sub(r'a[↵\u21B5\uFFFD\u001F]ect', 'affect', s, flags=re.IGNORECASE)
-    s = re.sub(r'[↵\u21B5\uFFFD]', ' ', s)
+    
+    # 1. Broken ligatures (space or special chars)
+    s = re.sub(r'su[ \u21B5\uFFFD\u001F]cient|sucient', 'sufficient', s, flags=re.IGNORECASE)
+    s = re.sub(r'coe[ \u21B5\uFFFD\u001F]cient|coecient', 'coefficient', s, flags=re.IGNORECASE)
+    s = re.sub(r'di[ \u21B5\uFFFD\u001F]usion|diusion', 'diffusion', s, flags=re.IGNORECASE)
+    s = re.sub(r'e[ \u21B5\uFFFD\u001F]ective|eective', 'effective', s, flags=re.IGNORECASE)
+    s = re.sub(r'e[ \u21B5\uFFFD\u001F]ect|eect', 'effect', s, flags=re.IGNORECASE)
+    s = re.sub(r'a[ \u21B5\uFFFD\u001F]ect|aect', 'affect', s, flags=re.IGNORECASE)
+    s = re.sub(r'o[ \u21B5\uFFFD\u001F]spring|ospring', 'offspring', s, flags=re.IGNORECASE)
+    s = re.sub(r'di[ \u21B5\uFFFD\u001F]erent|dierent', 'different', s, flags=re.IGNORECASE)
+    s = re.sub(r'di[ \u21B5\uFFFD\u001F]raction|diraction', 'diffraction', s, flags=re.IGNORECASE)
+    
+    s = re.sub(r'[\u21B5\uFFFD]', ' ', s)
 
     # 2. Corrupted permittivity / epsilon symbols
     s = re.sub(r'[\u21D4\u2208]\s*=\s*4\s*[\u21D4\u2208]\s*0', r'$\\epsilon = 4\\epsilon_0$', s)
@@ -68,8 +83,7 @@ def strip_page_headers_and_footers(text: str) -> str:
 def extract_raw_text_from_pdf(pdf_path: str) -> str:
     """Extracts raw text preserving layout and repairs symbols."""
     full_text = ""
-
-    # 1. Try PyMuPDF (fitz)
+    # Try fitz, pdfplumber, PyPDF2 in order
     try:
         import fitz
         doc = fitz.open(pdf_path)
@@ -77,11 +91,11 @@ def extract_raw_text_from_pdf(pdf_path: str) -> str:
             full_text += page.get_text("text") + "\n"
         doc.close()
         if len(full_text.strip()) > 50:
+            full_text = remove_hindi_lines(full_text)
             return strip_page_headers_and_footers(repair_pdf_ligatures_and_symbols(full_text))
     except Exception:
         pass
 
-    # 2. Try pdfplumber
     try:
         import pdfplumber
         with pdfplumber.open(pdf_path) as pdf:
@@ -90,11 +104,11 @@ def extract_raw_text_from_pdf(pdf_path: str) -> str:
                 if page_text:
                     full_text += page_text + "\n"
         if len(full_text.strip()) > 50:
+            full_text = remove_hindi_lines(full_text)
             return strip_page_headers_and_footers(repair_pdf_ligatures_and_symbols(full_text))
     except Exception:
         pass
 
-    # 3. Fallback to PyPDF2
     try:
         import PyPDF2
         with open(pdf_path, 'rb') as f:
@@ -106,29 +120,44 @@ def extract_raw_text_from_pdf(pdf_path: str) -> str:
     except Exception:
         pass
 
+    full_text = remove_hindi_lines(full_text)
     return strip_page_headers_and_footers(repair_pdf_ligatures_and_symbols(full_text))
 
 def format_electrochem_and_ions(text: str) -> str:
-    """Formats galvanic cell notation, redox species, phases, and complex ions."""
+    """Formats galvanic cell notation, redox species, phases, complex ions, and organic groups."""
     s = text
 
     s = re.sub(r'\s*Page\s*\d+(\s*of\s*\d+)?\s*$', '', s, flags=re.IGNORECASE).strip()
 
-    # 1. Galvanic cell phases & ions: Zn(s)|Zn2+ (aq)||Ag + (aq)|Ag(s)
+    # 1. Phases
     s = re.sub(r'\b([A-Z][a-z]?)\s*(\d+)?\s*([\+\-])\s*\(aq\)', r'$\1^{\2\3}\\text{(aq)}$', s)
     s = re.sub(r'\b([A-Z][a-z]?)\s*\(aq\)', r'$\1\\text{(aq)}$', s)
     s = re.sub(r'\b([A-Z][a-z]?)\s*\(s\)', r'$\1\\text{(s)}$', s)
     s = re.sub(r'\b([A-Z][a-z]?)\s*\(l\)', r'$\1\\text{(l)}$', s)
     s = re.sub(r'\b([A-Z][a-z]?)\s*\(g\)', r'$\1\\text{(g)}$', s)
 
-    # 2. Inverted and standard chemical ions: NH+ 4 -> $NH_4^+$, BH- 4 -> $BH_4^-$, NO + 2 -> $NO_2^+$, NH- 2 -> $NH_2^-$
+    # 2. Organic functional groups
+    s = re.sub(r'\b-COOH\b', r'$\\text{-COOH}$', s)
+    s = re.sub(r'\b-OH\b', r'$\\text{-OH}$', s)
+    s = re.sub(r'\b-NH2\b', r'$\\text{-NH}_2$', s)
+    s = re.sub(r'\b-CHO\b', r'$\\text{-CHO}$', s)
+
+    # 3. Coordination compounds and complex ions
+    s = re.sub(r'\[(Fe|Co|Ni|Cu|Pt|Pd)\((CN|NH3|H2O|en)\)_?(\d+)\]\^?\s*(\d*)([\+\-])', r'$[\1(\2)_{\3}]^{\4\5}$', s)
+    s = re.sub(r'\[(Fe|Co|Ni|Cu|Pt|Pd)\((CN|NH3|H2O|en)\)_?(\d+)\]', r'$[\1(\2)_{\3}]$', s)
+    s = re.sub(r'\b(MnO4)\s*\^?\s*([\+\-])\b', r'$\1^{\2}$', s)
+    s = re.sub(r'\b(Cr2O7)\s*\^?\s*2([\+\-])\b', r'$\1^{2\2}$', s)
+    s = re.sub(r'\b(PO4)\s*\^?\s*3([\+\-])\b', r'$\1^{3\2}$', s)
+    s = re.sub(r'\b(SO4)\s*\^?\s*2([\+\-])\b', r'$\1^{2\2}$', s)
+    
+    # 4. Standard chemical ions
     s = re.sub(r'\b([A-Z][a-zA-Z0-9]*)\s*([\+\-])\s*(\d+)\b', r'$\1_{\3}^{\2}$', s)
     s = re.sub(r'\b([A-Z][a-zA-Z0-9]*)\s*(\d+)\s*\^?\s*(\d*)([\+\-])\b', r'$\1_{\2}^{\3\4}$', s)
     s = re.sub(r'\b([A-Z][a-zA-Z0-9]*)\s*(\d+)([\+\-])\b', r'$\1_{\2}^{\3}$', s)
     s = re.sub(r'\[([A-Za-z0-9\(\)]+)\]\s*(\d+)?([\+\-])', r'$[\1]^{\2\3}$', s)
 
-    # 3. Subscript common molecules: N2O, NO2, O3, H2O, CO2, SO2, NH3
-    chem_tokens = r'\b(N2O|NO2|NO3|H2O|CO2|SO2|SO3|SO4|NH3|NH4|BH4|H3O|CH4|C2H6|C6H6|C6H12O6|H2SO4|HNO3|HCl|NaOH|KOH|KMnO4|O3|O2|N2|H2|Cl2|Br2|I2|F2)\b'
+    # 5. Subscript common molecules
+    chem_tokens = r'\b(N2O|NO2|NO3|H2O|CO2|SO2|SO3|SO4|NH3|NH4|BH4|H3O|CH4|C2H6|C6H6|C6H12O6|H2SO4|HNO3|HCl|NaOH|KOH|KMnO4|O3|O2|N2|H2|Cl2|Br2|I2|F2|MnO4|Cr2O7|PO4)\b'
     def repl_chem(m):
         sub = re.sub(r'([A-Za-z])(\d+)', r'\1_{\2}', m.group(1))
         return f"${sub}$"
@@ -140,76 +169,91 @@ def sanitize_scientific_math_and_chem(text: str) -> str:
     """High-precision conversion of math, chemical formulas, square roots, and matrices with token isolation."""
     if not text:
         return ""
-
     s = text
 
-    # 1. Strip any Hindi / Devanagari characters
-    s = re.sub(r'[\u0900-\u097F]+', '', s)
+    # Remove any remaining standalone devanagari if it sneaked in (though mostly handled by remove_hindi_lines)
+    # Actually, instructions said: "Do NOT try to strip Hindi characters from mixed lines... Apply this BEFORE question parsing, not during sanitization"
+    # So we skip re.sub(r'[\u0900-\u097F]+', '', s)
+    
     s = re.sub(r'[।॥]', '', s).strip()
 
-    # 2. Repair ligatures and footers
-    s = repair_pdf_ligatures_and_symbols(s)
-
-    # 3. Unicode superscripts and subscripts
+    # Unicode superscripts and subscripts
     sup_map = {'⁰':'0','¹':'1','²':'2','³':'3','⁴':'4','⁵':'5','⁶':'6','⁷':'7','⁸':'8','⁹':'9','⁺':'+','⁻':'-','⁼':'=','⁽':'(','⁾':')'}
     sub_map = {'₀':'0','₁':'1','₂':'2','₃':'3','₄':'4','₅':'5','₆':'6','₇':'7','₈':'8','₉':'9','₊':'+','₋':'-','₌':'=','₍':'(','₎':')'}
     s = re.sub(r'[⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾]+', lambda m: f"^{{{''.join(sup_map.get(c, c) for c in m.group(0))}}}", s)
     s = re.sub(r'[₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎]+', lambda m: f"_{{{''.join(sub_map.get(c, c) for c in m.group(0))}}}", s)
 
-    # 4. Square roots & Radicals: √2, sqrt(2), root 2
     s = re.sub(r'(?:\\u221A|√)\s*\((.*?)\)', r' $\\sqrt{\1}$ ', s)
     s = re.sub(r'(?:\\u221A|√)\s*([a-zA-Z0-9]+)', r' $\\sqrt{\1}$ ', s)
     s = re.sub(r'\b(?:sqrt|root)\s*\((.*?)\)', r' $\\sqrt{\1}$ ', s, flags=re.IGNORECASE)
     s = re.sub(r'\b(?:sqrt|root)\s*([a-zA-Z0-9]+)\b', r' $\\sqrt{\1}$ ', s, flags=re.IGNORECASE)
 
-    # 5. Electrochemistry and Chemical species
     s = format_electrochem_and_ions(s)
 
-    # 6. Powers & Scientific Notation: 3 x 10^8 -> $3 \times 10^8$
     s = re.sub(r'(\d+(?:\.\d+)?)\s*[xX\*×]\s*10\s*\^?\s*(-?\d+)', r' $\\1 \\times 10^{\\2}$ ', s)
     s = re.sub(r'\b10\s*\^\s*(-?\d+)', r' $10^{\\1}$ ', s)
 
-    # 7. Fractions: c/2 -> $\frac{c}{2}$, 1/3 -> $\frac{1}{3}$
     s = re.sub(r'\b(\d+)\s*\/\s*(\d+)\b', r' $\\frac{\\1}{\\2}$ ', s)
     s = re.sub(r'\b([a-zA-Z])\s*\/\s*(\d+)\b', r' $\\frac{\\1}{\\2}$ ', s)
 
-    # 8. Integrals, Vectors, Arrows
     s = re.sub(r'[\u222B\u222C\u222D\u222E]', r' \\int ', s)
     s = re.sub(r'[\u21CC\u21C4]', r' $\\rightleftharpoons$ ', s)
     s = re.sub(r'[\u2192\u27F6]', r' $\\rightarrow$ ', s)
+    s = re.sub(r'[\u21CC\u21C4\u2192\u27F6⟶⇌→]', r' $\\rightarrow$ ', s) 
+    
+    # Let's cleanly replace arrows
+    s = s.replace('→', ' $\\rightarrow$ ').replace('⇌', ' $\\rightleftharpoons$ ').replace('⟶', ' $\\longrightarrow$ ')
+
     s = re.sub(r'[\u00B1]', r' $\\pm$ ', s)
     s = re.sub(r'[\u00B0]', r'^{\\circ}', s)
 
-    # Clean double dollar signs and spaces
     s = re.sub(r'\${2,}', '$', s)
     s = re.sub(r'\$\s*\$', '', s)
     return re.sub(r'\s+', ' ', s).strip()
 
 def detect_section_header(line: str) -> Optional[str]:
-    """Detects Physics, Chemistry, Mathematics, or Biology section banners across NEST, IAT, JEE."""
+    """Detects Physics, Chemistry, Mathematics, or Biology section banners."""
     if len(line.split()) > 10:
         return None
     u = line.strip().upper()
-    if re.search(r'\b(SECTION\s*[-–—:]*\s*\d*\s*[-–—:]*\s*BIOLOGY|PART\s*[-–—:]*\s*\d*\s*[-–—:]*\s*BIOLOGY|\bBIOLOGY\b|\bBIOLOGICAL\b)', u):
+    
+    # Standalone checks (< 5 words)
+    words = u.split()
+    if len(words) < 5:
+        if 'BIOLOGY' in words: return 'Biology'
+        if 'CHEMISTRY' in words: return 'Chemistry'
+        if 'MATHEMATICS' in words or 'MATHS' in words: return 'Mathematics'
+        if 'PHYSICS' in words: return 'Physics'
+
+    if re.search(r'\b(SECTION\s*[-–—:]*\s*\d*\s*[-–—:]*\s*BIOLOGY|PART\s*[-–—:]*\s*[A-Z\d]*\s*[-–—:]*\s*BIOLOGY)', u):
         return 'Biology'
-    if re.search(r'\b(SECTION\s*[-–—:]*\s*\d*\s*[-–—:]*\s*CHEMISTRY|PART\s*[-–—:]*\s*\d*\s*[-–—:]*\s*CHEMISTRY|\bCHEMISTRY\b|\bCHEMICAL\b)', u):
+    if re.search(r'\b(SECTION\s*[-–—:]*\s*\d*\s*[-–—:]*\s*CHEMISTRY|PART\s*[-–—:]*\s*[A-Z\d]*\s*[-–—:]*\s*CHEMISTRY)', u):
         return 'Chemistry'
-    if re.search(r'\b(SECTION\s*[-–—:]*\s*\d*\s*[-–—:]*\s*MATHEMATICS|PART\s*[-–—:]*\s*\d*\s*[-–—:]*\s*MATHEMATICS|\bMATHEMATICS\b|\bMATHS\b|\bMATH\b)', u):
+    if re.search(r'\b(SECTION\s*[-–—:]*\s*\d*\s*[-–—:]*\s*MATHEMATICS|PART\s*[-–—:]*\s*[A-Z\d]*\s*[-–—:]*\s*MATHEMATICS)', u):
         return 'Mathematics'
-    if re.search(r'\b(SECTION\s*[-–—:]*\s*\d*\s*[-–—:]*\s*PHYSICS|PART\s*[-–—:]*\s*\d*\s*[-–—:]*\s*PHYSICS|\bPHYSICS\b|\bPHYSICAL\b)', u):
+    if re.search(r'\b(SECTION\s*[-–—:]*\s*\d*\s*[-–—:]*\s*PHYSICS|PART\s*[-–—:]*\s*[A-Z\d]*\s*[-–—:]*\s*PHYSICS)', u):
         return 'Physics'
     return None
 
-def is_hindi_question(text: str) -> bool:
-    """Returns True if the question is overwhelmingly Hindi/Devanagari."""
-    if not text:
-        return False
-    dev_chars = len(re.findall(r'[\u0900-\u097F]', text))
-    eng_chars = len(re.findall(r'[a-zA-Z]', text))
-    return dev_chars > 20 and dev_chars > eng_chars
+def parse_inline_options(line: str) -> List[str]:
+    """
+    Tries to parse inline options like:
+    (A) 4    (B) 5    (C) 6    (D) 7
+    A) val   B) val2  C) val3  D) val4
+    """
+    pattern = re.compile(r'(?:^|\s)[\(]?([A-D])[\)]?[\.\)]\s+')
+    matches = list(pattern.finditer(line))
+    if len(matches) == 4:
+        opts = []
+        for i in range(4):
+            start = matches[i].end()
+            end = matches[i+1].start() if i < 3 else len(line)
+            opts.append(line[start:end].strip())
+        return opts
+    return []
 
 def parse_questions_from_text(raw_text: str) -> List[Dict[str, Any]]:
-    """Splits raw text into clean English question objects, discarding all Hindi duplicates."""
+    """Splits raw text into clean English question objects."""
     lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
     questions = []
     current_q = None
@@ -226,10 +270,17 @@ def parse_questions_from_text(raw_text: str) -> List[Dict[str, Any]]:
     def finalize_question():
         nonlocal current_q
         if current_q and current_q.get('text', '').strip():
-            # Discard if overwhelmingly Hindi
-            if is_hindi_question(current_q['text']):
-                current_q = None
-                return
+            # Check for inline options if we don't have 4 options yet
+            if len(current_q['options']) == 0:
+                # Look in the text for inline options
+                inline_opts = parse_inline_options(current_q['text'])
+                if inline_opts:
+                    current_q['options'] = inline_opts
+                    # Remove the options from the text
+                    # We can just trim the text up to the first option
+                    first_match = re.search(r'(?:^|\s)[\(]?[A-D][\)]?[\.\)]\s+', current_q['text'])
+                    if first_match:
+                        current_q['text'] = current_q['text'][:first_match.start()].strip()
 
             while len(current_q['options']) < 4:
                 letters = ['A', 'B', 'C', 'D']
@@ -260,6 +311,25 @@ def parse_questions_from_text(raw_text: str) -> List[Dict[str, Any]]:
                     break
 
         if q_num is not None:
+            # If the same line starts a question and has options, it might be an inline option line
+            inline_opts = parse_inline_options(q_text_start)
+            if inline_opts:
+                finalize_question()
+                current_q = {
+                    'tempId': f"py_{current_section[:3].lower()}_{q_num}_{len(questions) + 1}",
+                    'questionNumber': q_num,
+                    'question_number': q_num,
+                    'section': current_section,
+                    'type': 'MCQ',
+                    'text': q_text_start[:re.search(r'(?:^|\s)[\(]?[A-D][\)]?[\.\)]\s+', q_text_start).start()].strip(),
+                    'options': inline_opts,
+                    'correctAnswer': 'A',
+                    'correct_answer': 'A',
+                    'imageUrl': '',
+                    'status': 'draft_review'
+                }
+                continue
+
             if not opt_pattern.match(line):
                 finalize_question()
                 current_q = {
@@ -278,6 +348,13 @@ def parse_questions_from_text(raw_text: str) -> List[Dict[str, Any]]:
                 continue
 
         if current_q:
+            # First check for inline options in the current line
+            inline_opts = parse_inline_options(line)
+            if inline_opts and len(current_q['options']) == 0:
+                current_q['options'] = inline_opts
+                continue
+
+            # Fallback to line-by-line options
             opt_m = opt_pattern.match(line)
             if opt_m:
                 opt_letter = opt_m.group(1).upper()
@@ -292,7 +369,6 @@ def parse_questions_from_text(raw_text: str) -> List[Dict[str, Any]]:
                 current_q['correct_answer'] = ans_m.group(1).upper()
                 continue
 
-            # Append multi-line question text or option text
             if not current_q['options']:
                 current_q['text'] += " " + line
             else:
@@ -304,10 +380,34 @@ def parse_questions_from_text(raw_text: str) -> List[Dict[str, Any]]:
 def classify_subject_keywords(text: str) -> Optional[str]:
     """Classifies a question into Physics, Chemistry, Mathematics, or Biology using scientific terms."""
     t = text.lower()
-    biology_terms = ['mendel', 'gamete', 'allele', 'chromosome', 'dna', 'rna', 'gene', 'protein', 'enzyme', 'cell', 'bacteria', 'plant', 'animal', 'organism', 'species', 'mitosis', 'meiosis', 'mutation', 'evolution', 'photosynthesis', 'respiration', 'ecology', 'ecosystem', 'taxonomy', 'anatomy', 'physiology', 'hormone', 'neuron', 'immune', 'antibody', 'antigen', 'virus', 'genetics', 'peptidoglycan', 'chloroplast', 'mitochondria', 'membrane', 'nucleotide', 'amino acid', 'lipid', 'polysaccharide', 'hemoglobin']
-    chemistry_terms = ['reaction', 'acid', 'base', 'butanoic', 'alcohol', 'aldehyde', 'ketone', 'ether', 'ester', 'amine', 'bond', 'mole', 'compound', 'organic', 'element', 'periodic', 'ion', 'cation', 'anion', 'oxidation', 'reduction', 'redox', 'galvanic', 'electrochemical', 'equilibrium', 'catalyst', 'polymer', 'isomer', 'electrode', 'electrolysis', 'solution', 'solvent', 'ph', 'titration', 'molar', 'enthalpy', 'entropy', 'molecular', 'atomic', 'valence', 'orbital', 'hybridization', 'isoelectronic', 'isostructural', 'deprotonation', 'aromatic']
-    math_terms = ['matrix', 'integral', 'derivative', 'differential', 'probability', 'vector', 'calculus', 'equation', 'polynomial', 'function', 'limit', 'series', 'sequence', 'determinant', 'eigenvalue', 'trigonometric', 'logarithm', 'exponential', 'algebra', 'geometry', 'theorem', 'proof', 'inequality', 'permutation', 'combination', 'statistics', 'mean', 'variance', 'graph', 'coordinate', 'parabola', 'ellipse', 'hyperbola', 'tangent', 'normal', 'binomial']
-    physics_terms = ['force', 'velocity', 'acceleration', 'mass', 'energy', 'power', 'momentum', 'electric', 'magnetic', 'field', 'wave', 'frequency', 'wavelength', 'optics', 'lens', 'mirror', 'circuit', 'resistance', 'current', 'voltage', 'capacitor', 'inductor', 'thermodynamics', 'heat', 'temperature', 'pressure', 'torque', 'angular', 'gravitational', 'potential', 'kinetic', 'permittivity', 'electromagnetic', 'refraction', 'diffraction', 'interference', 'photoelectric', 'quantum', 'frictional']
+    biology_terms = [
+        'mendel', 'gamete', 'allele', 'chromosome', 'dna', 'rna', 'gene', 'protein', 'enzyme', 'cell', 'bacteria', 
+        'plant', 'animal', 'organism', 'species', 'mitosis', 'meiosis', 'mutation', 'evolution', 'photosynthesis', 
+        'respiration', 'ecology', 'ecosystem', 'taxonomy', 'anatomy', 'physiology', 'hormone', 'neuron', 'immune', 
+        'antibody', 'antigen', 'virus', 'genetics', 'peptidoglycan', 'chloroplast', 'mitochondria', 'membrane', 
+        'nucleotide', 'amino acid', 'lipid', 'polysaccharide', 'hemoglobin', 'lysosome', 'ribosome', 'flagella'
+    ]
+    chemistry_terms = [
+        'reaction', 'acid', 'base', 'bond', 'mole', 'compound', 'organic', 'inorganic', 'element', 'periodic', 'ion', 
+        'cation', 'anion', 'oxidation', 'reduction', 'equilibrium', 'catalyst', 'polymer', 'isomer', 'electrode', 
+        'electrolysis', 'solution', 'solvent', 'titration', 'molar', 'enthalpy', 'entropy', 'molecular', 'atomic', 
+        'valence', 'orbital', 'hybridization', 'aromatic', 'alkane', 'alkene', 'alkyne', 'ester', 'amine', 'aldehyde', 
+        'ketone', 'carboxylic', 'ph', 'redox', 'galvanic', 'electrochemical'
+    ]
+    math_terms = [
+        'matrix', 'integral', 'derivative', 'differential', 'probability', 'vector', 'calculus', 'equation', 'polynomial', 
+        'function', 'limit', 'series', 'sequence', 'determinant', 'eigenvalue', 'trigonometric', 'logarithm', 'exponential', 
+        'algebra', 'geometry', 'theorem', 'proof', 'inequality', 'permutation', 'combination', 'statistics', 'mean', 
+        'variance', 'graph', 'coordinate', 'parabola', 'ellipse', 'hyperbola', 'tangent', 'normal', 'binomial', 'geometry',
+        'calculus', 'integration', 'differentiation', 'continuous', 'differentiable', 'complex number', 'locus'
+    ]
+    physics_terms = [
+        'force', 'velocity', 'acceleration', 'mass', 'energy', 'power', 'momentum', 'electric', 'magnetic', 'field', 
+        'wave', 'frequency', 'wavelength', 'optics', 'lens', 'mirror', 'circuit', 'resistance', 'current', 'voltage', 
+        'capacitor', 'inductor', 'thermodynamics', 'heat', 'temperature', 'pressure', 'torque', 'angular', 'gravitational', 
+        'potential', 'kinetic', 'permittivity', 'electromagnetic', 'refraction', 'diffraction', 'interference', 'photoelectric', 
+        'quantum', 'frictional', 'tension', 'pendulum', 'spring', 'kinematics', 'oscillation'
+    ]
 
     bio_score = sum(1 for k in biology_terms if k in t)
     chem_score = sum(1 for k in chemistry_terms if k in t)
@@ -327,13 +427,12 @@ def balance_and_renumber_sections(questions: List[Dict[str, Any]]) -> List[Dict[
     total_q = len(questions)
     quarter = max(1, total_q // 4)
 
-    # 1. Classify each question using keyword intelligence or 4-quarter partition
     for idx, q in enumerate(questions):
         raw_text = q.get('text', '')
         classified = classify_subject_keywords(raw_text)
         if classified:
             q['section'] = classified
-        elif not q.get('section') or q['section'] == 'General' or q['section'] == 'Physics':
+        elif not q.get('section') or q['section'] == 'General':
             # NEST order: Biology (Q1-20), Chemistry (Q21-40), Mathematics (Q41-60), Physics (Q61-80)
             if idx < quarter:
                 q['section'] = 'Biology'
@@ -376,7 +475,6 @@ def main():
         raw_questions = parse_questions_from_text(raw_text)
         questions = balance_and_renumber_sections(raw_questions)
 
-        # Count per section
         section_counts = {"Physics": 0, "Chemistry": 0, "Mathematics": 0, "Biology": 0}
         for q in questions:
             s = q.get('section', 'Physics')

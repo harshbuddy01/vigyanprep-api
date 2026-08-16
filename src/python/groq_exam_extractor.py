@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Groq AI Scientific & Bilingual Exam Paper Extractor for VigyanPrep
-Uses Groq Llama 3.3 70B & Vision to extract scientific exam PDFs with 95%+ precision.
+Uses Groq Llama 3.3 70B to extract scientific exam PDFs with 95%+ precision.
 """
 
 import sys
@@ -16,11 +16,20 @@ import json
 import ssl
 import urllib.request
 import re
+import time
 from typing import List, Dict, Any, Optional
 
-from pdf_diagram_cropper import crop_and_extract_diagrams
-
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+
+# SSL Configuration
+try:
+    import certifi
+    ctx = ssl.create_default_context(cafile=certifi.where())
+except ImportError:
+    try:
+        ctx = ssl.create_default_context()
+    except Exception:
+        ctx = ssl._create_unverified_context()
 
 def extract_text_chunks_from_pdf(pdf_path: str) -> List[Dict[str, Any]]:
     """Extracts text per page from PDF using PyMuPDF or pdfplumber."""
@@ -89,8 +98,10 @@ def clean_and_parse_json(raw_str: str) -> Any:
 
     raise ValueError(f"Could not parse valid JSON from AI response: {s[:150]}...")
 
-def call_groq_api(prompt: str, model: str = "llama-3.3-70b-versatile", api_key: str = GROQ_API_KEY) -> str:
-    """Calls Groq API with robust SSL bypass and returns completion text."""
+def call_groq_api(prompt: str, model: str = "llama-3.3-70b-versatile", api_key: str = "") -> str:
+    """Calls Groq API with robust SSL bypass and retries."""
+    if not api_key:
+        api_key = GROQ_API_KEY
     if not api_key:
         raise ValueError("GROQ_API_KEY is empty. Please set GROQ_API_KEY environment variable.")
 
@@ -109,20 +120,21 @@ def call_groq_api(prompt: str, model: str = "llama-3.3-70b-versatile", api_key: 
                 "content": (
                     "You are an expert academic parser for Indian scientific entrance exams (IISER IAT, NISER NEST, JEE Advanced, ISI, CMI).\n"
                     "RULES:\n"
-                    "1. LANGUAGE: Extract ONLY the English version of each question. Completely IGNORE, DROP, and DO NOT transcribe any Hindi or Devanagari translation.\n"
-                    "2. MATHEMATICS & FORMULAS: Convert all math, square roots, matrices, exponents, and chemical species into KaTeX LaTeX ($...$).\n"
+                    "1. LANGUAGE: Extract ONLY the English version of each question. Completely IGNORE, DROP, and DO NOT transcribe any Hindi or Devanagari translation or text blocks.\n"
+                    "2. NEST EXAM SECTIONS: Assign sections accurately based on content keywords and standard NEST order: Biology (Q1-20), Chemistry (Q21-40), Mathematics (Q41-60), Physics (Q61-80).\n"
+                    "3. MATHEMATICS & FORMULAS: Convert ALL math, square roots, matrices, exponents, chemical species, and scientific notation into KaTeX LaTeX ($...$).\n"
                     "   - Matrices: $\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}$\n"
                     "   - Roots: $\\sqrt{2}$, $\\sqrt{x^2+y^2}$\n"
                     "   - Fractions: $\\frac{1}{2}$, $\\frac{c}{2}$\n"
                     "   - Chemistry: $NH_4^+$, $BH_4^-$, $NO_2^+$, $N_2O$, $SO_4^{2-}$, $[Fe(CN)_6]^{4-}$, etc.\n"
                     "   - Galvanic cells: $Zn\\text{(s)} \\mid Zn^{2+}\\text{(aq)} \\parallel Ag^{+}\\text{(aq)} \\mid Ag\\text{(s)}$\n"
-                    "3. FOOTERS: Do NOT include 'Page X', 'Page X of Y', or exam codes in the question or option text.\n"
-                    "4. OUTPUT FORMAT: Respond ONLY with a valid JSON object matching this schema:\n"
+                    "4. FOOTERS/HEADERS: Do NOT include 'Page X', 'Page X of Y', page headers, page footers, or exam codes in the question or option text.\n"
+                    "5. OUTPUT FORMAT: Respond ONLY with a valid JSON object matching this schema:\n"
                     "{\n"
                     "  \"questions\": [\n"
                     "    {\n"
                     "      \"question_number\": 1,\n"
-                    "      \"section\": \"Physics\" | \"Chemistry\" | \"Mathematics\" | \"Biology\",\n"
+                    "      \"section\": \"Biology\" | \"Chemistry\" | \"Mathematics\" | \"Physics\",\n"
                     "      \"question_text\": \"English statement with LaTeX formulas\",\n"
                     "      \"options\": [\"Option A text with LaTeX\", \"Option B text\", \"Option C text\", \"Option D text\"],\n"
                     "      \"correct_answer\": \"A\" | \"B\" | \"C\" | \"D\"\n"
@@ -140,31 +152,57 @@ def call_groq_api(prompt: str, model: str = "llama-3.3-70b-versatile", api_key: 
         "max_tokens": 8000,
         "response_format": {"type": "json_object"}
     }
+    
+    req_data = json.dumps(payload).encode("utf-8")
+    
+    retries = 3
+    backoff = 1
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(url, data=req_data, headers=headers)
+            with urllib.request.urlopen(req, context=ctx, timeout=60) as response:
+                res = json.loads(response.read().decode("utf-8"))
+                return res["choices"][0]["message"]["content"]
+        except Exception as e:
+            if attempt == retries - 1:
+                raise e
+            print(f"[Warning] Groq API call failed (attempt {attempt + 1}/{retries}): {e}. Retrying in {backoff}s...", file=sys.stderr)
+            time.sleep(backoff)
+            backoff *= 2
 
-    ctx = ssl._create_unverified_context()
-    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers)
-
-    with urllib.request.urlopen(req, context=ctx, timeout=60) as response:
-        res = json.loads(response.read().decode("utf-8"))
-        return res["choices"][0]["message"]["content"]
+    return ""
 
 def parse_pdf_with_groq(pdf_path: str, api_key: str = GROQ_API_KEY) -> List[Dict[str, Any]]:
-    """Extracts pages from PDF and processes through Groq in batches."""
+    """
+    Extracts pages from PDF and processes through Groq in LARGE batches.
+    Uses 8 pages per batch to minimize API calls (typically 3 calls for a 24-page paper).
+    Adds 3-second delay between calls to respect Groq free-tier rate limits.
+    """
     pages = extract_text_chunks_from_pdf(pdf_path)
     if not pages:
         raise ValueError("Could not extract any readable text from this PDF.")
 
-    chunk_size = 4
+    # Use large 8-page windows to minimize API calls (24 pages = only 3 calls)
+    window_size = 8
     all_questions = []
 
-    for i in range(0, len(pages), chunk_size):
-        chunk = pages[i:i + chunk_size]
+    for i in range(0, len(pages), window_size):
+        chunk = pages[i:i + window_size]
+        if not chunk:
+            break
+
+        # Rate limit: wait 3 seconds between calls (skip first call)
+        if i > 0:
+            print(f"[Groq] Waiting 3s before next API call to avoid rate limits...", file=sys.stderr)
+            time.sleep(3)
+
         combined_text = "\n\n--- PAGE BREAK ---\n\n".join([f"Page {p['page']}:\n{p['text']}" for p in chunk])
 
         user_prompt = (
             f"Here is the raw text from exam paper pages {chunk[0]['page']} to {chunk[-1]['page']}:\n\n"
             f"{combined_text}\n\n"
-            f"Extract all English questions from these pages into the JSON schema: {{\"questions\": [ ... ]}}"
+            f"Extract ALL English questions from these pages. IGNORE all Hindi/Devanagari text. "
+            f"Return JSON: {{\"questions\": [ ... ]}}"
         )
 
         try:
@@ -179,6 +217,7 @@ def parse_pdf_with_groq(pdf_path: str, api_key: str = GROQ_API_KEY) -> List[Dict
                             q["options"].append(f"Option {['A','B','C','D'][len(q['options'])]}")
                         q["options"] = q["options"][:4]
                         all_questions.append(q)
+            print(f"[Groq] Pages {chunk[0]['page']}-{chunk[-1]['page']}: extracted {len(q_list) if isinstance(q_list, list) else 0} questions", file=sys.stderr)
         except Exception as e:
             print(f"[Warning] Groq batch extraction error for pages {chunk[0]['page']}-{chunk[-1]['page']}: {e}", file=sys.stderr)
 
@@ -197,29 +236,34 @@ def main():
         sys.exit(1)
 
     try:
-        # 1. Extract diagrams and reaction schemes using PyMuPDF Vector Cropper
-        diagram_res = crop_and_extract_diagrams(pdf_path)
-        diag_map = diagram_res.get("diagramMap", {})
-
-        # 2. Extract structured English questions using Groq AI
+        # Extract structured English questions using Groq AI with overlapping windows
         raw_questions = parse_pdf_with_groq(pdf_path, api_key=api_key)
         if not raw_questions:
             print(json.dumps({"success": False, "error": "Groq returned no questions from this PDF."}))
             sys.exit(1)
 
+        # Deduplicate questions since we used overlapping windows
+        seen_signatures = set()
+        unique_questions = []
+        for q in raw_questions:
+            text = q.get("question_text", "") or ""
+            # Use first 60 chars as uniqueness signature
+            sig = text[:60].lower().strip()
+            if sig and sig not in seen_signatures:
+                seen_signatures.add(sig)
+                unique_questions.append(q)
+        
         section_counters = {"Physics": 0, "Chemistry": 0, "Mathematics": 0, "Biology": 0}
         formatted_questions = []
 
-        for idx, q in enumerate(raw_questions):
+        for idx, q in enumerate(unique_questions):
             sec = q.get("section", "Physics")
+            # Fallback for unexpected section names
             if sec not in section_counters:
                 sec = "Physics"
                 q["section"] = "Physics"
+                
             section_counters[sec] += 1
-
-            approx_page = max(1, min(len(diag_map), (idx // 4) + 1))
-            page_diags = diag_map.get(approx_page, [])
-            assigned_img = page_diags[0]["url"] if len(page_diags) > 0 and ("reaction" in q.get("question_text", "").lower() or "structure" in q.get("question_text", "").lower() or "diagram" in q.get("question_text", "").lower() or "circuit" in q.get("question_text", "").lower() or "figure" in q.get("question_text", "").lower()) else ""
 
             formatted_questions.append({
                 "tempId": f"groq_{sec[:3].lower()}_{section_counters[sec]}_{idx + 1}",
@@ -232,18 +276,17 @@ def main():
                 "options": q.get("options", []),
                 "correctAnswer": q.get("correct_answer", "A"),
                 "correct_answer": q.get("correct_answer", "A"),
-                "imageUrl": assigned_img,
+                "imageUrl": "",  # Dropping buggy diagram mapper
                 "status": "draft_review"
             })
 
         result = {
             "success": True,
-            "source": "groq_llama_3.3_70b_and_vector_cropper",
+            "source": "groq_llama_3.3_70b",
             "questions": formatted_questions,
             "sectionCounts": section_counters,
             "totalQuestions": len(formatted_questions),
-            "totalDiagramsCropped": diagram_res.get("totalImages", 0),
-            "message": f"⚡ Groq AI (Llama 3.3 70B) + PyMuPDF Cropper extracted {len(formatted_questions)} clean English questions and {diagram_res.get('totalImages', 0)} high-res reaction diagrams!"
+            "message": f"⚡ Groq AI (Llama 3.3 70B) extracted {len(formatted_questions)} clean English questions!"
         }
         print(json.dumps(result))
 

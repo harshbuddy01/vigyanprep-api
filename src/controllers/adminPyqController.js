@@ -109,7 +109,32 @@ function sanitizeAndFormatMathText(text) {
   return str.replace(/\s+/g, ' ').trim();
 }
 
+function isHindiLine(text) {
+  if (!text) return false;
+  const devChars = (text.match(/[\u0900-\u097F]/g) || []).length;
+  const totalChars = text.replace(/\s/g, '').length;
+  return totalChars > 0 && (devChars / totalChars) > 0.3;
+}
+
+function parseInlineOptions(line) {
+  // Matches: (A) val1  (B) val2  (C) val3  (D) val4
+  // Also: A) val1  B) val2  C) val3  D) val4
+  const pattern = /(?:^|\s)[\(]?([A-D])[\)]?[.)\s]\s+/gi;
+  const matches = [...line.matchAll(pattern)];
+  if (matches.length === 4) {
+    const opts = [];
+    for (let i = 0; i < 4; i++) {
+      const start = matches[i].index + matches[i][0].length;
+      const end = i < 3 ? matches[i + 1].index : line.length;
+      opts.push(line.slice(start, end).trim());
+    }
+    return opts;
+  }
+  return null;
+}
+
 function parseQuestionsFromText(rawText) {
+  // 1. Drop entire Hindi lines BEFORE parsing
   const cleanText = rawText
     .replace(/\u0000/g, '')
     .replace(/\r\n/g, '\n')
@@ -118,10 +143,10 @@ function parseQuestionsFromText(rawText) {
     .replace(/[ \t]{2,}/g, ' ')
     .trim();
 
-  const lines = cleanText.split('\n').map(l => l.trim()).filter(Boolean);
+  const lines = cleanText.split('\n').map(l => l.trim()).filter(l => l && !isHindiLine(l));
   const questions = [];
   let currentQ = null;
-  let currentSection = 'Physics';
+  let currentSection = 'Biology'; // NEST starts with Biology
   let sectionHeaderFound = false;
 
   const qPatterns = [
@@ -135,17 +160,17 @@ function parseQuestionsFromText(rawText) {
 
   const pushCurrentQ = () => {
     if (currentQ && currentQ.question_text && currentQ.question_text.trim().length > 0) {
-      // 1. Discard if Hindi duplicate question
-      const devCount = (currentQ.question_text.match(/[\u0900-\u097F]/g) || []).length;
-      if (devCount >= 4) {
-        currentQ = null;
-        return;
-      }
-
-      // 2. Discard if too short
-      if (currentQ.question_text.trim().length < 8 && currentQ.options.length === 0) {
-        currentQ = null;
-        return;
+      // Try inline options if we have none
+      if (currentQ.options.length === 0) {
+        const inlineOpts = parseInlineOptions(currentQ.question_text);
+        if (inlineOpts) {
+          currentQ.options = inlineOpts;
+          const firstOptMatch = currentQ.question_text.match(/(?:^|\s)[\(]?[A-D][\)]?[.)\s]\s+/i);
+          if (firstOptMatch) {
+            currentQ.question_text = currentQ.question_text.slice(0, firstOptMatch.index).trim();
+            currentQ.text = currentQ.question_text;
+          }
+        }
       }
 
       while (currentQ.options.length < 4) {
@@ -153,7 +178,7 @@ function parseQuestionsFromText(rawText) {
         currentQ.options.push(`Option ${letters[currentQ.options.length]}`);
       }
 
-      // Strip page footers from options: e.g. "Page 2", "Page 6"
+      // Strip page footers from options
       currentQ.options = currentQ.options.slice(0, 4).map(o => {
         const stripped = o.replace(/\s*Page\s*\d+(\s*of\s*\d+)?\s*$/i, '').trim();
         return sanitizeAndFormatMathText(stripped);
@@ -212,6 +237,13 @@ function parseQuestionsFromText(rawText) {
     }
 
     if (currentQ) {
+      // Try inline options on this line first
+      const inlineOpts = parseInlineOptions(line);
+      if (inlineOpts && currentQ.options.length === 0) {
+        currentQ.options = inlineOpts;
+        continue;
+      }
+
       if (currentQ.options.length === 0) {
         currentQ.question_text += ' ' + line;
         currentQ.text += ' ' + line;
@@ -261,15 +293,32 @@ import { spawn } from 'child_process';
 function runPythonScript(scriptRelativePath, pdfBuffer) {
   return new Promise((resolve, reject) => {
     const tempPath = path.join(os.tmpdir(), `paper_${Date.now()}_${Math.random().toString(36).slice(2)}.pdf`);
-    fs.writeFileSync(tempPath, pdfBuffer);
+    const cleanupTemp = () => { try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch {} };
+
+    try {
+      fs.writeFileSync(tempPath, pdfBuffer);
+    } catch (writeErr) {
+      return reject(new Error(`Failed to write temp PDF: ${writeErr.message}`));
+    }
 
     const scriptPath = path.join(process.cwd(), scriptRelativePath);
     const groqKey = process.env.GROQ_API_KEY || '';
+
+    // Auto-detect Python site-packages across all common versions
+    const homeDir = os.homedir();
+    const pyVersions = ['3.14', '3.13', '3.12', '3.11', '3.10', '3.9'];
+    const pyPaths = pyVersions
+      .map(v => `${homeDir}/.local/lib/python${v}/site-packages`)
+      .filter(p => { try { return fs.existsSync(p); } catch { return false; } });
+    pyPaths.push(process.env.PYTHONPATH || '');
+
     const pyEnv = {
       ...process.env,
       GROQ_API_KEY: groqKey,
-      PYTHONPATH: `${os.homedir()}/.local/lib/python3.13/site-packages:${os.homedir()}/.local/lib/python3.12/site-packages:${process.env.PYTHONPATH || ''}`
+      PYTHONPATH: pyPaths.join(':')
     };
+
+    console.log(`[PDF Parser] Running ${scriptRelativePath}...`);
     const py = spawn('python3', [scriptPath, tempPath, groqKey], { env: pyEnv });
 
     let stdout = '';
@@ -279,45 +328,55 @@ function runPythonScript(scriptRelativePath, pdfBuffer) {
     py.stderr.on('data', (d) => { stderr += d.toString(); });
 
     py.on('close', (code) => {
-      try {
-        if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-      } catch {}
+      cleanupTemp();
+      if (stderr) console.warn(`[PDF Parser] ${scriptRelativePath} stderr:`, stderr.slice(0, 500));
 
       if (code === 0 && stdout) {
         try {
           const res = JSON.parse(stdout);
           if (res.success && Array.isArray(res.questions) && res.questions.length > 0) {
+            console.log(`[PDF Parser] ${scriptRelativePath} extracted ${res.questions.length} questions successfully.`);
             return resolve(res);
           }
         } catch (jsonErr) {
-          console.warn(`${scriptRelativePath} output was not valid JSON:`, stdout);
+          console.warn(`[PDF Parser] ${scriptRelativePath} output was not valid JSON:`, stdout.slice(0, 300));
         }
       }
-      reject(new Error(stderr || `${scriptRelativePath} returned no valid questions`));
+      reject(new Error(stderr || `${scriptRelativePath} returned no valid questions (exit code: ${code})`));
     });
 
     py.on('error', (err) => {
-      try {
-        if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-      } catch {}
+      cleanupTemp();
       reject(err);
     });
   });
 }
 
 async function runPythonExtractor(pdfBuffer) {
-  // 1. Try Groq AI (Llama 3.3 70B & Vision) for 95%+ precision
-  try {
-    const groqResult = await runPythonScript('src/python/groq_exam_extractor.py', pdfBuffer);
-    if (groqResult && groqResult.questions && groqResult.questions.length > 0) {
-      return groqResult;
+  // Priority 1: Groq AI (Llama 3.3 70B) — 95%+ precision
+  if (process.env.GROQ_API_KEY) {
+    try {
+      console.log('[PDF Parser] Attempting Groq AI extraction...');
+      const groqResult = await runPythonScript('src/python/groq_exam_extractor.py', pdfBuffer);
+      if (groqResult && groqResult.questions && groqResult.questions.length > 0) {
+        console.log(`[PDF Parser] Groq AI success: ${groqResult.questions.length} questions`);
+        return groqResult;
+      }
+    } catch (groqErr) {
+      console.warn('[PDF Parser] Groq AI failed, falling back:', groqErr.message);
     }
-  } catch (groqErr) {
-    console.warn('Groq AI extractor fallback to local scientific extractor:', groqErr.message);
+  } else {
+    console.warn('[PDF Parser] GROQ_API_KEY not set, skipping AI extraction');
   }
 
-  // 2. Fallback to Local Scientific & Formula Extractor
-  return runPythonScript('src/python/scientific_paper_extractor.py', pdfBuffer);
+  // Priority 2: Local Python Scientific Extractor
+  try {
+    console.log('[PDF Parser] Attempting local Python extraction...');
+    return await runPythonScript('src/python/scientific_paper_extractor.py', pdfBuffer);
+  } catch (pyErr) {
+    console.warn('[PDF Parser] Python extractor failed:', pyErr.message);
+    throw pyErr;
+  }
 }
 
 export const uploadAndParsePdf = async (req, res) => {
