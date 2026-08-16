@@ -99,7 +99,7 @@ def clean_and_parse_json(raw_str: str) -> Any:
     raise ValueError(f"Could not parse valid JSON from AI response: {s[:150]}...")
 
 def call_groq_api(prompt: str, model: str = "llama-3.3-70b-versatile", api_key: str = "") -> str:
-    """Calls Groq API with robust SSL bypass and retries."""
+    """Calls Groq API with instant model fallback (70B -> 8B-instant) to prevent 429 rate limits."""
     if not api_key:
         api_key = GROQ_API_KEY
     if not api_key:
@@ -112,89 +112,82 @@ def call_groq_api(prompt: str, model: str = "llama-3.3-70b-versatile", api_key: 
         "User-Agent": "VigyanPrep/1.0"
     }
 
-    payload = {
-        "model": model,
-        "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "You are an expert academic parser for Indian scientific entrance exams (IISER IAT, NISER NEST, JEE Advanced, ISI, CMI).\n"
-                    "RULES:\n"
-                    "1. LANGUAGE: Extract ONLY the English version of each question. Completely IGNORE, DROP, and DO NOT transcribe any Hindi or Devanagari translation or text blocks.\n"
-                    "2. NEST EXAM SECTIONS: Assign sections accurately based on content keywords and standard NEST order: Biology (Q1-20), Chemistry (Q21-40), Mathematics (Q41-60), Physics (Q61-80).\n"
-                    "3. MATHEMATICS & FORMULAS: Convert ALL math, square roots, matrices, exponents, chemical species, and scientific notation into KaTeX LaTeX ($...$).\n"
-                    "   - Matrices: $\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}$\n"
-                    "   - Roots: $\\sqrt{2}$, $\\sqrt{x^2+y^2}$\n"
-                    "   - Fractions: $\\frac{1}{2}$, $\\frac{c}{2}$\n"
-                    "   - Chemistry: $NH_4^+$, $BH_4^-$, $NO_2^+$, $N_2O$, $SO_4^{2-}$, $[Fe(CN)_6]^{4-}$, etc.\n"
-                    "   - Galvanic cells: $Zn\\text{(s)} \\mid Zn^{2+}\\text{(aq)} \\parallel Ag^{+}\\text{(aq)} \\mid Ag\\text{(s)}$\n"
-                    "4. FOOTERS/HEADERS: Do NOT include 'Page X', 'Page X of Y', page headers, page footers, or exam codes in the question or option text.\n"
-                    "5. OUTPUT FORMAT: Respond ONLY with a valid JSON object matching this schema:\n"
-                    "{\n"
-                    "  \"questions\": [\n"
-                    "    {\n"
-                    "      \"question_number\": 1,\n"
-                    "      \"section\": \"Biology\" | \"Chemistry\" | \"Mathematics\" | \"Physics\",\n"
-                    "      \"question_text\": \"English statement with LaTeX formulas\",\n"
-                    "      \"options\": [\"Option A text with LaTeX\", \"Option B text\", \"Option C text\", \"Option D text\"],\n"
-                    "      \"correct_answer\": \"A\" | \"B\" | \"C\" | \"D\"\n"
-                    "    }\n"
-                    "  ]\n"
-                    "}"
-                )
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        "temperature": 0.1,
-        "max_tokens": 8000,
-        "response_format": {"type": "json_object"}
-    }
-    
-    req_data = json.dumps(payload).encode("utf-8")
-    
-    retries = 3
-    backoff = 1
-    for attempt in range(retries):
-        try:
-            req = urllib.request.Request(url, data=req_data, headers=headers)
-            with urllib.request.urlopen(req, context=ctx, timeout=60) as response:
-                res = json.loads(response.read().decode("utf-8"))
-                return res["choices"][0]["message"]["content"]
-        except Exception as e:
-            if attempt == retries - 1:
-                raise e
-            print(f"[Warning] Groq API call failed (attempt {attempt + 1}/{retries}): {e}. Retrying in {backoff}s...", file=sys.stderr)
-            time.sleep(backoff)
-            backoff *= 2
+    system_prompt = (
+        "You are an expert academic parser for Indian scientific entrance exams (IISER IAT, NISER NEST, JEE Advanced, ISI, CMI).\n"
+        "RULES:\n"
+        "1. LANGUAGE: Extract ONLY the English version of each question. Completely IGNORE, DROP, and DO NOT transcribe any Hindi or Devanagari translation or text blocks.\n"
+        "2. NEST EXAM SECTIONS: Assign sections accurately: Biology (Q1-20), Chemistry (Q21-40), Mathematics (Q41-60), Physics (Q61-80).\n"
+        "3. MATHEMATICS & FORMULAS: Convert ALL math, square roots, matrices, exponents, chemical species, and scientific notation into KaTeX LaTeX ($...$).\n"
+        "   - Roots: $\\sqrt{2}$, $\\sqrt{x^2+y^2}$, Fractions: $\\frac{a}{b}$, Matrices: $\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}$\n"
+        "   - Chemistry: $NH_4^+$, $BH_4^-$, $NO_2^+$, $N_2O$, $SO_4^{2-}$, $[Fe(CN)_6]^{4-}$, $-COOH$\n"
+        "4. FOOTERS/HEADERS: Do NOT include 'Page X', 'Page X of Y', or exam codes.\n"
+        "5. OUTPUT FORMAT: Respond ONLY with a valid JSON object matching this schema:\n"
+        "{\n"
+        "  \"questions\": [\n"
+        "    {\n"
+        "      \"question_number\": 1,\n"
+        "      \"section\": \"Biology\" | \"Chemistry\" | \"Mathematics\" | \"Physics\",\n"
+        "      \"question_text\": \"English statement with LaTeX formulas\",\n"
+        "      \"options\": [\"Option A with LaTeX\", \"Option B\", \"Option C\", \"Option D\"],\n"
+        "      \"correct_answer\": \"A\" | \"B\" | \"C\" | \"D\"\n"
+        "    }\n"
+        "  ]\n"
+        "}"
+    )
+
+    models_to_try = [model, "llama-3.1-8b-instant"]
+
+    for m in models_to_try:
+        payload = {
+            "model": m,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.1,
+            "max_tokens": 8000,
+            "response_format": {"type": "json_object"}
+        }
+
+        req_data = json.dumps(payload).encode("utf-8")
+
+        for attempt in range(2):
+            try:
+                req = urllib.request.Request(url, data=req_data, headers=headers)
+                with urllib.request.urlopen(req, context=ctx, timeout=30) as response:
+                    res = json.loads(response.read().decode("utf-8"))
+                    return res["choices"][0]["message"]["content"]
+            except urllib.error.HTTPError as http_err:
+                if http_err.code == 429:
+                    print(f"[Groq RateLimit 429] Model {m} hit rate limit, trying fallback model...", file=sys.stderr)
+                    time.sleep(1)
+                    break  # Break to next model
+                elif attempt == 1 and m == models_to_try[-1]:
+                    raise http_err
+                time.sleep(1)
+            except Exception as e:
+                if attempt == 1 and m == models_to_try[-1]:
+                    raise e
+                time.sleep(1)
 
     return ""
 
 def parse_pdf_with_groq(pdf_path: str, api_key: str = GROQ_API_KEY) -> List[Dict[str, Any]]:
     """
-    Extracts pages from PDF and processes through Groq in LARGE batches.
-    Uses 8 pages per batch to minimize API calls (typically 3 calls for a 24-page paper).
-    Adds 3-second delay between calls to respect Groq free-tier rate limits.
+    Extracts pages from PDF and processes through Groq in fast 5-page chunks.
+    Automatically handles rate limits with instant fallback to llama-3.1-8b-instant.
     """
     pages = extract_text_chunks_from_pdf(pdf_path)
     if not pages:
         raise ValueError("Could not extract any readable text from this PDF.")
 
-    # Use large 8-page windows to minimize API calls (24 pages = only 3 calls)
-    window_size = 8
+    window_size = 5
     all_questions = []
 
     for i in range(0, len(pages), window_size):
         chunk = pages[i:i + window_size]
         if not chunk:
             break
-
-        # Rate limit: wait 3 seconds between calls (skip first call)
-        if i > 0:
-            print(f"[Groq] Waiting 3s before next API call to avoid rate limits...", file=sys.stderr)
-            time.sleep(3)
 
         combined_text = "\n\n--- PAGE BREAK ---\n\n".join([f"Page {p['page']}:\n{p['text']}" for p in chunk])
 
