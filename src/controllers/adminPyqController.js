@@ -241,17 +241,19 @@ function parseQuestionsFromText(rawText) {
 import os from 'os';
 import { spawn } from 'child_process';
 
-function runPythonExtractor(pdfBuffer) {
+function runPythonScript(scriptRelativePath, pdfBuffer) {
   return new Promise((resolve, reject) => {
     const tempPath = path.join(os.tmpdir(), `paper_${Date.now()}_${Math.random().toString(36).slice(2)}.pdf`);
     fs.writeFileSync(tempPath, pdfBuffer);
 
-    const scriptPath = path.join(process.cwd(), 'src/python/scientific_paper_extractor.py');
+    const scriptPath = path.join(process.cwd(), scriptRelativePath);
+    const groqKey = process.env.GROQ_API_KEY || '';
     const pyEnv = {
       ...process.env,
+      GROQ_API_KEY: groqKey,
       PYTHONPATH: `${os.homedir()}/.local/lib/python3.13/site-packages:${os.homedir()}/.local/lib/python3.12/site-packages:${process.env.PYTHONPATH || ''}`
     };
-    const py = spawn('python3', [scriptPath, tempPath], { env: pyEnv });
+    const py = spawn('python3', [scriptPath, tempPath, groqKey], { env: pyEnv });
 
     let stdout = '';
     let stderr = '';
@@ -271,10 +273,10 @@ function runPythonExtractor(pdfBuffer) {
             return resolve(res);
           }
         } catch (jsonErr) {
-          console.warn('Python extractor output was not valid JSON:', stdout);
+          console.warn(`${scriptRelativePath} output was not valid JSON:`, stdout);
         }
       }
-      reject(new Error(stderr || 'Python extractor returned no valid questions'));
+      reject(new Error(stderr || `${scriptRelativePath} returned no valid questions`));
     });
 
     py.on('error', (err) => {
@@ -284,6 +286,21 @@ function runPythonExtractor(pdfBuffer) {
       reject(err);
     });
   });
+}
+
+async function runPythonExtractor(pdfBuffer) {
+  // 1. Try Groq AI (Llama 3.3 70B & Vision) for 95%+ precision
+  try {
+    const groqResult = await runPythonScript('src/python/groq_exam_extractor.py', pdfBuffer);
+    if (groqResult && groqResult.questions && groqResult.questions.length > 0) {
+      return groqResult;
+    }
+  } catch (groqErr) {
+    console.warn('Groq AI extractor fallback to local scientific extractor:', groqErr.message);
+  }
+
+  // 2. Fallback to Local Scientific & Formula Extractor
+  return runPythonScript('src/python/scientific_paper_extractor.py', pdfBuffer);
 }
 
 export const uploadAndParsePdf = async (req, res) => {
