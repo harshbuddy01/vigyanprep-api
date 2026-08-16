@@ -4,16 +4,16 @@ import { verifyAuth } from '../middlewares/auth.js';
 
 const router = express.Router();
 
-// Public solutions route (internally checks if results are declared/released)
+// Result & Solutions endpoints (lifecycle controller handles public vs secret state)
+router.get('/result/:attemptId', getAttemptResult);
 router.get('/solutions/:testId', getPaperSolutions);
 
-// Protected routes (student JWT required)
+// Protected exam runtime routes (student JWT strictly required)
 router.use(verifyAuth);
 
 router.post('/start/:testId', startAttempt);
 router.post('/autosave/:attemptId', autosaveAnswers);
 router.post('/proctor-log/:attemptId', logProctorEvent);
 router.post('/submit/:attemptId', submitAttempt);
-router.get('/result/:attemptId', getAttemptResult);
 
 export default router;

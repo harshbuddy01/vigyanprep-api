@@ -280,7 +280,6 @@ export const getAttemptResult = async (req, res) => {
       .from('attempts').select('*').eq('id', attemptId).single();
 
     if (attemptErr || !attempt) return res.status(404).json({ error: 'Attempt not found' });
-    if (attempt.student_id !== studentId) return res.status(403).json({ error: 'Access denied' });
 
     if (attempt.status !== 'submitted') {
       return res.status(202).json({ success: true, status: 'in_progress', message: 'Exam not yet submitted' });
@@ -292,6 +291,13 @@ export const getAttemptResult = async (req, res) => {
       .select('id, title, exam_type, content_type, duration_minutes, response_released_at, status')
       .eq('id', attempt.test_id)
       .maybeSingle();
+
+    const isPyq = test?.content_type === 'pyq';
+    const resultReleased = isPyq || test?.status === 'completed' || !!(test?.response_released_at && new Date(test.response_released_at) <= new Date());
+
+    if (!resultReleased && studentId && attempt.student_id && attempt.student_id !== studentId) {
+      return res.status(403).json({ error: 'Access denied: results pending' });
+    }
 
     const { data: studentAnswers } = await supabase
       .from('attempt_answers').select('question_id, answer').eq('attempt_id', attemptId);
