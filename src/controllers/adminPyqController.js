@@ -134,13 +134,32 @@ function parseQuestionsFromText(rawText) {
   const ansPattern = /^(?:answer|ans(?:wer)?)[.:\s]+[\[(]?([A-D])[\])]?/i;
 
   const pushCurrentQ = () => {
-    if (currentQ && currentQ.text && currentQ.text.trim().length > 5) {
+    if (currentQ && currentQ.question_text && currentQ.question_text.trim().length > 0) {
+      // 1. Discard if Hindi duplicate question
+      const devCount = (currentQ.question_text.match(/[\u0900-\u097F]/g) || []).length;
+      if (devCount >= 4) {
+        currentQ = null;
+        return;
+      }
+
+      // 2. Discard if too short
+      if (currentQ.question_text.trim().length < 8 && currentQ.options.length === 0) {
+        currentQ = null;
+        return;
+      }
+
       while (currentQ.options.length < 4) {
         const letters = ['A', 'B', 'C', 'D'];
         currentQ.options.push(`Option ${letters[currentQ.options.length]}`);
       }
-      currentQ.options = currentQ.options.slice(0, 4).map(o => sanitizeAndFormatMathText(o));
-      currentQ.text = sanitizeAndFormatMathText(currentQ.text);
+
+      // Strip page footers from options: e.g. "Page 2", "Page 6"
+      currentQ.options = currentQ.options.slice(0, 4).map(o => {
+        const stripped = o.replace(/\s*Page\s*\d+(\s*of\s*\d+)?\s*$/i, '').trim();
+        return sanitizeAndFormatMathText(stripped);
+      });
+
+      currentQ.text = sanitizeAndFormatMathText(currentQ.text.replace(/\s*Page\s*\d+(\s*of\s*\d+)?\s*$/i, '').trim());
       currentQ.question_text = currentQ.text;
       questions.push(currentQ);
     }
@@ -207,21 +226,14 @@ function parseQuestionsFromText(rawText) {
 
   pushCurrentQ();
 
-  if (!sectionHeaderFound) {
-    questions.forEach((q, idx) => {
-      const keyword = classifySubject(q.question_text);
-      if (keyword) {
-        q.section = keyword;
-      } else {
-        const total = questions.length;
-        const quarter = Math.ceil(total / 4);
-        if (idx < quarter) q.section = 'Physics';
-        else if (idx < 2 * quarter) q.section = 'Chemistry';
-        else if (idx < 3 * quarter) q.section = 'Mathematics';
-        else q.section = 'Biology';
-      }
-    });
-  }
+  // Renumber and balance sections cleanly
+  const sectionCounters = { Physics: 0, Chemistry: 0, Mathematics: 0, Biology: 0 };
+  questions.forEach(q => {
+    if (!sectionCounters[q.section]) q.section = 'Physics';
+    sectionCounters[q.section]++;
+    q.question_number = sectionCounters[q.section];
+    q.questionNumber = sectionCounters[q.section];
+  });
 
   return questions;
 }
@@ -235,7 +247,11 @@ function runPythonExtractor(pdfBuffer) {
     fs.writeFileSync(tempPath, pdfBuffer);
 
     const scriptPath = path.join(process.cwd(), 'src/python/scientific_paper_extractor.py');
-    const py = spawn('python3', [scriptPath, tempPath]);
+    const pyEnv = {
+      ...process.env,
+      PYTHONPATH: `${os.homedir()}/.local/lib/python3.13/site-packages:${os.homedir()}/.local/lib/python3.12/site-packages:${process.env.PYTHONPATH || ''}`
+    };
+    const py = spawn('python3', [scriptPath, tempPath], { env: pyEnv });
 
     let stdout = '';
     let stderr = '';
