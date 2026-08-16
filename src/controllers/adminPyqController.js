@@ -276,6 +276,50 @@ function parseQuestionsFromText(rawText) {
   return questions;
 }
 
+import os from 'os';
+import { spawn } from 'child_process';
+
+function runPythonExtractor(pdfBuffer) {
+  return new Promise((resolve, reject) => {
+    const tempPath = path.join(os.tmpdir(), `paper_${Date.now()}_${Math.random().toString(36).slice(2)}.pdf`);
+    fs.writeFileSync(tempPath, pdfBuffer);
+
+    const scriptPath = path.join(process.cwd(), 'src/python/scientific_paper_extractor.py');
+    const py = spawn('python3', [scriptPath, tempPath]);
+
+    let stdout = '';
+    let stderr = '';
+
+    py.stdout.on('data', (d) => { stdout += d.toString(); });
+    py.stderr.on('data', (d) => { stderr += d.toString(); });
+
+    py.on('close', (code) => {
+      try {
+        if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+      } catch {}
+
+      if (code === 0 && stdout) {
+        try {
+          const res = JSON.parse(stdout);
+          if (res.success && Array.isArray(res.questions) && res.questions.length > 0) {
+            return resolve(res);
+          }
+        } catch (jsonErr) {
+          console.warn('Python extractor output was not valid JSON:', stdout);
+        }
+      }
+      reject(new Error(stderr || 'Python extractor returned no valid questions'));
+    });
+
+    py.on('error', (err) => {
+      try {
+        if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+      } catch {}
+      reject(err);
+    });
+  });
+}
+
 export const uploadAndParsePdf = async (req, res) => {
   try {
     if (!req.file) {
@@ -283,6 +327,26 @@ export const uploadAndParsePdf = async (req, res) => {
     }
 
     const pdfBuffer = req.file.buffer;
+
+    // 1. Try Python Scientific & Formula Extractor first
+    try {
+      const pyResult = await runPythonExtractor(pdfBuffer);
+      if (pyResult && pyResult.questions && pyResult.questions.length > 0) {
+        return res.status(200).json({
+          success: true,
+          source: 'python_scientific_engine',
+          filename: req.file.originalname,
+          totalQuestions: pyResult.questions.length,
+          sectionCounts: pyResult.sectionCounts || { Physics: 0, Chemistry: 0, Mathematics: 0, Biology: 0 },
+          questions: pyResult.questions,
+          message: pyResult.message || `🐍 Python successfully extracted ${pyResult.questions.length} questions with LaTeX formulas, roots, and chemical species!`
+        });
+      }
+    } catch (pyErr) {
+      console.warn('Python scientific extractor fallback to Node parser:', pyErr.message);
+    }
+
+    // 2. Fallback to Node.js parser with Math & Chemistry Sanitizer
     let rawText = '';
     try {
       rawText = await extractTextFromBuffer(pdfBuffer);
@@ -327,6 +391,7 @@ export const uploadAndParsePdf = async (req, res) => {
 
     return res.status(200).json({
       success: true,
+      source: 'node_math_engine',
       filename: req.file.originalname,
       totalQuestions: mapped.length,
       sectionCounts,
