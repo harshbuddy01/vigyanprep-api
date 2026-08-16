@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
 Scientific Paper & Mathematical Formula Extractor for VigyanPrep (IISER IAT, NISER NEST, ISI, CMI)
-Extracts questions, LaTeX math formulas, matrices, square roots, and chemical species with token-level isolation.
+Features:
+1. Bilingual (Hindi + English) Intelligent Stripping (Keeps ONLY pure English questions & options).
+2. Token-level isolated LaTeX math, square roots, radicals, and chemical species.
+3. Precision NEST & IAT Section Detection & Balanced Renumbering.
 """
 
 import sys
@@ -10,18 +13,61 @@ import os
 import re
 from typing import List, Dict, Any, Optional
 
-def extract_raw_text_and_tables(pdf_path: str) -> str:
-    """Extracts text preserving layout using pdfplumber, PyMuPDF, or PyPDF2."""
+def is_devanagari_heavy(text: str, threshold: float = 0.25) -> bool:
+    """Returns True if the text contains a significant portion of Hindi/Devanagari characters."""
+    if not text:
+        return False
+    dev_chars = len(re.findall(r'[\u0900-\u097F]', text))
+    total_alpha_chars = len(re.findall(r'[a-zA-Z0-9\u0900-\u097F]', text))
+    if total_alpha_chars == 0:
+        return False
+    return (dev_chars / total_alpha_chars) >= threshold
+
+def strip_hindi_and_bilingual_noise(text: str) -> str:
+    """Removes all Hindi/Devanagari sentences, translated lines, and duplicate Hindi text."""
+    if not text:
+        return ""
+
+    lines = text.split('\n')
+    filtered_lines = []
+
+    for line in lines:
+        raw_l = line.strip()
+        if not raw_l:
+            continue
+
+        # 1. If line is predominantly Hindi, skip it completely
+        if is_devanagari_heavy(raw_l, threshold=0.20):
+            continue
+
+        # 2. Skip common Hindi exam section banners
+        if re.search(r'(?:भाग\s*[-–—:]*\s*\d|खंड\s*[-–—:]*\s*\d|भौतिक|रसायन|गणित|जीव|प्रश्न\s*संख्या)', raw_l):
+            continue
+
+        # 3. Strip any inline Hindi words, matras, and Devanagari punctuation (।, ॥)
+        cleaned = re.sub(r'[\u0900-\u097F]+', '', raw_l)
+        cleaned = re.sub(r'[।॥]', '', cleaned).strip()
+
+        # Clean duplicate adjacent words caused by side-by-side bilingual numbers (e.g. "5 m/s 5 m/s")
+        cleaned = re.sub(r'\b(\S+)\s+\1\b', r'\1', cleaned)
+
+        if cleaned and len(cleaned) > 1:
+            filtered_lines.append(cleaned)
+
+    return "\n".join(filtered_lines)
+
+def extract_raw_text_from_pdf(pdf_path: str) -> str:
+    """Extracts raw text preserving column layout and applies bilingual cleaning."""
     full_text = ""
 
-    # 1. Try PyMuPDF (fitz) first
+    # 1. Try PyMuPDF (fitz)
     try:
         import fitz
         doc = fitz.open(pdf_path)
         for page in doc:
             full_text += page.get_text("text") + "\n"
         if len(full_text.strip()) > 100:
-            return full_text
+            return strip_hindi_and_bilingual_noise(full_text)
     except Exception:
         pass
 
@@ -34,7 +80,7 @@ def extract_raw_text_and_tables(pdf_path: str) -> str:
                 if page_text:
                     full_text += page_text + "\n"
         if len(full_text.strip()) > 100:
-            return full_text
+            return strip_hindi_and_bilingual_noise(full_text)
     except Exception:
         pass
 
@@ -50,43 +96,16 @@ def extract_raw_text_and_tables(pdf_path: str) -> str:
     except Exception:
         pass
 
-    return full_text
-
-def format_chemical_token(token: str) -> str:
-    """Converts raw chemical strings like NH+ 4, BH- 4, NO+ 2, N2O, O3, SO4 2- into clean LaTeX $...$."""
-    t = token.strip()
-    if not t:
-        return ""
-
-    # 1. Species with inverted charge & subscript: NH+ 4 -> $NH_4^+$, BH- 4 -> $BH_4^-$, NO+ 2 -> $NO_2^+$
-    t = re.sub(r'\b([A-Z][a-z]?H?)\s*([\+\-])\s*(\d+)\b', r'$\1_{\3}^{\2}$', t)
-
-    # 2. Standard polyatomic / molecular ions: NH4+, NH4 -, SO4 2-, NO3 -, H3O +, O2 -, N2 2+
-    t = re.sub(r'\b([A-Z][a-z]?H?)\s*(\d+)\s*\^?\s*(\d*)([\+\-])\b', r'$\1_{\2}^{\3\4}$', t)
-    t = re.sub(r'\b([A-Z][a-z]?H?)\s*(\d+)([\+\-])\b', r'$\1_{\2}^{\3}$', t)
-    t = re.sub(r'\b([A-Z][a-z]?H?)\s*(\d*)([\+\-])\b', r'$\1^{\2\3}$', t)
-
-    # 3. Coordination complexes: [Fe(CN)6]4- -> $[Fe(CN)_6]^{4-}$
-    t = re.sub(r'\[([A-Za-z0-9\(\)]+)\]\s*(\d+)?([\+\-])', r'$[\1]^{\2\3}$', t)
-
-    # 4. Multi-element molecules: N2O, NO2, H2O, CO2, NH3, H2SO4, C6H12O6, O3
-    # Look for elemental sequence with numbers
-    def repl_mol(m):
-        raw_mol = m.group(0)
-        # Subscript all numbers in chemical formulas
-        subscripted = re.sub(r'([A-Za-z])(\d+)', r'\1_{\2}', raw_mol)
-        return f"${subscripted}$"
-
-    t = re.sub(r'\b([A-Z][a-z]?\d+[A-Z][a-z]?\d*|[A-Z][a-z]?\d+)\b', repl_mol, t)
-
-    return t
+    return strip_hindi_and_bilingual_noise(full_text)
 
 def sanitize_scientific_math_and_chem(text: str) -> str:
     """High-precision conversion of math, chemical formulas, square roots, and matrices with token isolation."""
     if not text:
         return ""
 
-    s = text
+    # First clean any residual Hindi / Devanagari script
+    s = re.sub(r'[\u0900-\u097F]+', '', text)
+    s = re.sub(r'[।॥]', '', s).strip()
 
     # 1. Normalize Unicode superscripts and subscripts
     sup_map = {'⁰':'0','¹':'1','²':'2','³':'3','⁴':'4','⁵':'5','⁶':'6','⁷':'7','⁸':'8','⁹':'9','⁺':'+','⁻':'-','⁼':'=','⁽':'(','⁾':')'}
@@ -100,14 +119,14 @@ def sanitize_scientific_math_and_chem(text: str) -> str:
     s = re.sub(r'\b(?:sqrt|root)\s*\((.*?)\)', r' $\\sqrt{\1}$ ', s, flags=re.IGNORECASE)
     s = re.sub(r'\b(?:sqrt|root)\s*([a-zA-Z0-9]+)\b', r' $\\sqrt{\1}$ ', s, flags=re.IGNORECASE)
 
-    # 3. Chemical formulas & ions conversion (token by token)
-    # NH+ 4 and BH- 4 -> $NH_4^+$ and $BH_4^-$
+    # 3. Chemical Species, Ions & Coordination Complexes (Token-isolated):
+    # NH+ 4 -> $NH_4^+$, BH- 4 -> $BH_4^-$, NO+ 2 -> $NO_2^+$, NH- 2 -> $NH_2^-$
     s = re.sub(r'\b([A-Z][a-z]?H?)\s*([\+\-])\s*(\d+)\b', r'$\1_{\3}^{\2}$', s)
     s = re.sub(r'\b([A-Z][a-z]?H?)\s*(\d+)\s*\^?\s*(\d*)([\+\-])\b', r'$\1_{\2}^{\3\4}$', s)
     s = re.sub(r'\b([A-Z][a-z]?H?)\s*(\d+)([\+\-])\b', r'$\1_{\2}^{\3}$', s)
     s = re.sub(r'\[([A-Za-z0-9\(\)]+)\]\s*(\d+)?([\+\-])', r'$[\1]^{\2\3}$', s)
 
-    # Subscript common molecules without swallowing connectors like "and", "or"
+    # Subscript common molecules without swallowing connectors like "and", "or", "to"
     chem_tokens = r'\b(N2O|NO2|NO3|H2O|CO2|SO2|SO3|SO4|NH3|NH4|BH4|H3O|CH4|C2H6|C6H6|C6H12O6|H2SO4|HNO3|HCl|NaOH|KOH|KMnO4|O3|O2|N2|H2|Cl2|Br2|I2|F2)\b'
     def repl_chem(m):
         raw = m.group(1)
@@ -115,7 +134,7 @@ def sanitize_scientific_math_and_chem(text: str) -> str:
         return f"${sub}$"
     s = re.sub(chem_tokens, repl_chem, s)
 
-    # 4. Powers & Scientific Notation: 3 x 10^8 -> $3 \times 10^8$
+    # 4. Powers & Scientific Notation: 3 x 10^8 -> $3 \times 10^8$, 10^-5 -> $10^{-5}$
     s = re.sub(r'(\d+(?:\.\d+)?)\s*[xX\*×]\s*10\s*\^?\s*(-?\d+)', r' $\1 \\times 10^{\2}$ ', s)
     s = re.sub(r'\b10\s*\^\s*(-?\d+)', r' $10^{\1}$ ', s)
 
@@ -133,15 +152,15 @@ def sanitize_scientific_math_and_chem(text: str) -> str:
     s = re.sub(r'[\u00B1]', r' $\\pm$ ', s)
     s = re.sub(r'[\u00B0]', r'^{\\circ}', s)
 
-    # Clean double dollar signs: $$...$$ -> $...$ unless block
+    # Clean double dollar signs and redundant spaces
     s = re.sub(r'\${2,}', '$', s)
-    # Fix adjacent tokens: $O_3$$NO_2$ -> $O_3$ $NO_2$
-    s = re.sub(r'\$\$', '$ $', s)
+    s = re.sub(r'\$\s*\$', '', s)
+    s = re.sub(r'\s+', ' ', s).strip()
 
-    return re.sub(r'\s+', ' ', s).strip()
+    return s
 
 def detect_section_header(line: str) -> Optional[str]:
-    """Detects Physics, Chemistry, Mathematics, or Biology section headers across NEST & IAT."""
+    """Detects Physics, Chemistry, Mathematics, or Biology section banners across NEST, IAT, JEE."""
     if len(line.split()) > 10:
         return None
     u = line.strip().upper()
@@ -156,12 +175,11 @@ def detect_section_header(line: str) -> Optional[str]:
     return None
 
 def parse_questions_from_text(raw_text: str) -> List[Dict[str, Any]]:
-    """Splits raw extracted text into clean, balanced question objects."""
+    """Splits cleaned English text into structured question objects."""
     lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
     questions = []
     current_q = None
-    current_section = 'Biology' # Default starting section for NEST, or Physics for IAT
-    seen_q_in_section = set()
+    current_section = 'Biology'
 
     q_start_patterns = [
         re.compile(r'^(?:Q(?:uestion)?\.?\s*)(\d{1,3})[.):\s]+(\S.*)', re.IGNORECASE),
@@ -174,13 +192,14 @@ def parse_questions_from_text(raw_text: str) -> List[Dict[str, Any]]:
     def finalize_question():
         nonlocal current_q
         if current_q and current_q.get('text', '').strip():
-            # Validate question has meaningful length
+            # Validate question text length (ignore table noise)
             if len(current_q['text'].strip()) < 8 and len(current_q['options']) == 0:
-                return # Ignore noise/headers
+                return
 
             while len(current_q['options']) < 4:
                 letters = ['A', 'B', 'C', 'D']
                 current_q['options'].append(f"Option {letters[len(current_q['options'])]}")
+            
             current_q['options'] = [sanitize_scientific_math_and_chem(o) for o in current_q['options'][:4]]
             current_q['text'] = sanitize_scientific_math_and_chem(current_q['text'])
             current_q['question_text'] = current_q['text']
@@ -192,7 +211,6 @@ def parse_questions_from_text(raw_text: str) -> List[Dict[str, Any]]:
         if sec:
             finalize_question()
             current_section = sec
-            seen_q_in_section = set()
             continue
 
         q_num = None
@@ -201,19 +219,14 @@ def parse_questions_from_text(raw_text: str) -> List[Dict[str, Any]]:
             m = pat.match(line)
             if m:
                 potential_num = int(m.group(1))
-                # Only accept valid question numbers (1 to 80)
                 if 1 <= potential_num <= 100:
                     q_num = potential_num
                     q_text_start = m.group(2).strip()
                     break
 
         if q_num is not None:
-            # Check if this is a genuine question or an option/table item
-            # Genuine question start should not be an option (like A. B. C. D.)
             if not opt_pattern.match(line):
                 finalize_question()
-                # Section relative numbering
-                seen_q_in_section.add(q_num)
                 current_q = {
                     'tempId': f"py_{current_section[:3].lower()}_{q_num}_{len(questions) + 1}",
                     'questionNumber': q_num,
@@ -279,7 +292,7 @@ def main():
         sys.exit(1)
 
     try:
-        raw_text = extract_raw_text_and_tables(pdf_path)
+        raw_text = extract_raw_text_from_pdf(pdf_path)
         if not raw_text.strip():
             print(json.dumps({"success": False, "error": "Could not extract text from PDF."}))
             sys.exit(1)
@@ -299,7 +312,7 @@ def main():
             "questions": questions,
             "sectionCounts": section_counts,
             "totalQuestions": len(questions),
-            "message": f"🐍 Extracted {len(questions)} questions — Physics: {section_counts['Physics']}, Chemistry: {section_counts['Chemistry']}, Math: {section_counts['Mathematics']}, Biology: {section_counts['Biology']}"
+            "message": f"🐍 Extracted {len(questions)} clean English questions — Physics: {section_counts['Physics']}, Chemistry: {section_counts['Chemistry']}, Math: {section_counts['Mathematics']}, Biology: {section_counts['Biology']}"
         }
         print(json.dumps(result))
 
