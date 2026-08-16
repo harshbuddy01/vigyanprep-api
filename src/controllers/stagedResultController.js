@@ -175,15 +175,13 @@ export const calculateTestRanks = async (req, res) => {
 
       await supabase.from('results').upsert({
         attempt_id: item.attempt_id,
-        org_id: item.org_id,
         test_id: item.test_id,
         student_id: item.student_id,
         raw_score: item.raw_score,
         section_scores: item.section_scores,
         percentage: Number(((item.raw_score / Math.max(1, questionMap.size * 4)) * 100).toFixed(2)),
         rank_overall: rankOverall,
-        percentile: percentile,
-        attempt_type: 'live'
+        percentile: percentile
       }, { onConflict: 'attempt_id' });
     }
 

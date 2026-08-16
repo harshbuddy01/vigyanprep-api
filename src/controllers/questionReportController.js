@@ -25,7 +25,7 @@ export const submitQuestionReport = async (req, res) => {
 
     // 🛡️ Anti-Spam Check 2: Max 5 reports per student per test
     const { count } = await supabase
-      .from('question_reports')
+      .from('challenges')
       .select('*', { count: 'exact', head: true })
       .eq('test_id', testId)
       .eq('student_id', studentId);
@@ -37,13 +37,12 @@ export const submitQuestionReport = async (req, res) => {
     }
 
     const { data: report, error } = await supabase
-      .from('question_reports')
+      .from('challenges')
       .insert({
         test_id: testId,
         question_id: questionId,
         student_id: studentId,
         reason: cleanReason,
-        proof_url: proofUrl || null,
         status: 'pending'
       })
       .select()
@@ -68,9 +67,8 @@ export const resolveQuestionReport = async (req, res) => {
   try {
     const { reportId } = req.params;
     const { resolution, newAnswer, adminNote } = req.body; // 'answer_changed' | 'dropped' | 'rejected'
-    const adminId = req.user?.id;
 
-    const { data: report } = await supabase.from('question_reports').select('*').eq('id', reportId).single();
+    const { data: report } = await supabase.from('challenges').select('*').eq('id', reportId).single();
     if (!report) return res.status(404).json({ error: 'Report not found' });
 
     if (resolution === 'answer_changed' && newAnswer) {
@@ -79,13 +77,9 @@ export const resolveQuestionReport = async (req, res) => {
     }
 
     await supabase
-      .from('question_reports')
+      .from('challenges')
       .update({
-        status: 'resolved',
-        resolution,
-        admin_note: adminNote || '',
-        resolved_by: adminId,
-        resolved_at: new Date().toISOString()
+        status: 'resolved'
       })
       .eq('id', reportId);
 
