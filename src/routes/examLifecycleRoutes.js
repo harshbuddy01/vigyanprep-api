@@ -3,14 +3,17 @@ import { startAttempt, autosaveAnswers, logProctorEvent, submitAttempt, getAttem
 import { verifyAuth } from '../middlewares/auth.js';
 
 const router = express.Router();
+
+// Public solutions route (internally checks if results are declared/released)
+router.get('/solutions/:testId', getPaperSolutions);
+
+// Protected routes (student JWT required)
 router.use(verifyAuth);
 
-// Student-accessible routes (student JWT required)
 router.post('/start/:testId', startAttempt);
 router.post('/autosave/:attemptId', autosaveAnswers);
 router.post('/proctor-log/:attemptId', logProctorEvent);
 router.post('/submit/:attemptId', submitAttempt);
 router.get('/result/:attemptId', getAttemptResult);
-router.get('/solutions/:testId', getPaperSolutions);
 
 export default router;
