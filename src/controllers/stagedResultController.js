@@ -372,7 +372,7 @@ export const getTestAttemptsForAdmin = async (req, res) => {
       });
     }
 
-    // Fetch student details from users / subscriptions
+    // Fetch student details from users / subscriptions / auth
     const studentIds = (attempts || []).map(a => a.student_id).filter(Boolean);
     let studentsMap = {};
     if (studentIds.length > 0) {
@@ -395,6 +395,20 @@ export const getTestAttemptsForAdmin = async (req, res) => {
           studentsMap[s.student_id] = { name: s.student_name || 'Student', email: s.student_email };
         }
       });
+
+      for (const sId of studentIds) {
+        if (!studentsMap[sId] || !studentsMap[sId].email || studentsMap[sId].email === 'N/A') {
+          try {
+            const { data: authUser } = await supabase.auth.admin.getUserById(sId);
+            if (authUser?.user) {
+              studentsMap[sId] = {
+                name: authUser.user.user_metadata?.full_name || authUser.user.user_metadata?.name || authUser.user.email?.split('@')[0] || 'Student',
+                email: authUser.user.email
+              };
+            }
+          } catch (e) {}
+        }
+      }
     }
 
     const enriched = (attempts || []).map(a => ({
@@ -452,7 +466,7 @@ export const getAttemptDetailForAdmin = async (req, res) => {
 
     const { data: questions } = await supabase
       .from('questions')
-      .select('id, question_number, section, question_text, text, options, correct_answer, solution_explanation, image_url')
+      .select('id, question_number, section, question_text, text, options, correct_answer, model_answer, image_url')
       .eq('test_id', attempt.test_id)
       .order('question_number', { ascending: true });
 
@@ -465,6 +479,14 @@ export const getAttemptDetailForAdmin = async (req, res) => {
       if (user) {
         studentName = user.full_name || user.name || studentName;
         studentEmail = user.email || studentEmail;
+      } else {
+        try {
+          const { data: authUser } = await supabase.auth.admin.getUserById(attempt.student_id);
+          if (authUser?.user) {
+            studentName = authUser.user.user_metadata?.full_name || authUser.user.user_metadata?.name || authUser.user.email?.split('@')[0] || studentName;
+            studentEmail = authUser.user.email || studentEmail;
+          }
+        } catch (e) {}
       }
     }
 

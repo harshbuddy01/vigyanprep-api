@@ -21,7 +21,9 @@ router.post('/calculate/:testId', verifyAdminAuth, calculateTestRanks);
 router.post('/release/:testId', verifyAdminAuth, releaseResults);
 
 // Live student attempt inspection for Admin
+router.get('/attempts/:testId', verifyAdminAuth, getTestAttemptsForAdmin);
 router.get('/admin/attempts/:testId', verifyAdminAuth, getTestAttemptsForAdmin);
+router.get('/attempt-detail/:attemptId', verifyAdminAuth, getAttemptDetailForAdmin);
 router.get('/admin/attempt-detail/:attemptId', verifyAdminAuth, getAttemptDetailForAdmin);
 
 export default router;
