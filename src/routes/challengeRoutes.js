@@ -33,7 +33,24 @@ router.get('/', verifyAdminAuth, async (req, res) => {
 
         const { data, error } = await query;
         if (error) throw error;
-        res.status(200).json({ success: true, data });
+        res.status(200).json({ success: true, challenges: data || [], data: data || [] });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// GET /api/challenges/test/:testId - Admin gets challenges for a test
+router.get('/test/:testId', verifyAdminAuth, async (req, res) => {
+    try {
+        const { testId } = req.params;
+        const { data, error } = await supabase
+            .from('challenges')
+            .select('*')
+            .eq('test_id', testId)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        res.status(200).json({ success: true, challenges: data || [], data: data || [] });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
