@@ -305,9 +305,6 @@ export const getAttemptResult = async (req, res) => {
     const answersMap = {};
     if (studentAnswers) studentAnswers.forEach(a => { answersMap[a.question_id] = a.answer; });
 
-    const isPyq = test?.content_type === 'pyq';
-    const resultReleased = isPyq || test?.status === 'completed' || !!(test?.response_released_at && new Date(test.response_released_at) <= new Date());
-
     const questionSelect = resultReleased
       ? 'id, question_text, options, section, correct_answer, marks_positive, marks_negative, model_answer, image_url, question_number'
       : 'id, question_text, options, section, marks_positive, marks_negative, image_url, question_number';
