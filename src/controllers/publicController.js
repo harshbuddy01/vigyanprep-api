@@ -107,6 +107,8 @@ export const getPublicTestDetails = async (req, res) => {
         examType: test.exam_type || test.test_type || 'IAT',
         exam_type: test.exam_type || test.test_type || 'IAT',
         content_type: test.content_type || 'test_series',
+        status: test.status || 'ongoing',
+        response_released_at: test.response_released_at || null,
         pyq_year: test.pyq_year || test.year || null,
         year: test.pyq_year || test.year || null,
         duration_minutes: test.duration_minutes || 180,
