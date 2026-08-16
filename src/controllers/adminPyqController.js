@@ -226,10 +226,27 @@ function parseQuestionsFromText(rawText) {
 
   pushCurrentQ();
 
-  // Renumber and balance sections cleanly
+  // If section wasn't set or was unknown, classify with keywords or 4-quarter partition
+  questions.forEach((q, idx) => {
+    if (!q.section || q.section === 'General' || !['Physics', 'Chemistry', 'Mathematics', 'Biology'].includes(q.section)) {
+      const keyword = classifySubject(q.question_text || q.text);
+      if (keyword) {
+        q.section = keyword;
+      } else {
+        const total = questions.length;
+        const quarter = Math.ceil(total / 4);
+        if (idx < quarter) q.section = 'Biology';
+        else if (idx < 2 * quarter) q.section = 'Chemistry';
+        else if (idx < 3 * quarter) q.section = 'Mathematics';
+        else q.section = 'Physics';
+      }
+    }
+  });
+
+  // Renumber and balance sections cleanly (1..20 per section)
   const sectionCounters = { Physics: 0, Chemistry: 0, Mathematics: 0, Biology: 0 };
   questions.forEach(q => {
-    if (!sectionCounters[q.section]) q.section = 'Physics';
+    if (sectionCounters[q.section] === undefined) q.section = 'Physics';
     sectionCounters[q.section]++;
     q.question_number = sectionCounters[q.section];
     q.questionNumber = sectionCounters[q.section];

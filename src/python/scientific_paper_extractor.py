@@ -301,8 +301,49 @@ def parse_questions_from_text(raw_text: str) -> List[Dict[str, Any]]:
     finalize_question()
     return questions
 
+def classify_subject_keywords(text: str) -> Optional[str]:
+    """Classifies a question into Physics, Chemistry, Mathematics, or Biology using scientific terms."""
+    t = text.lower()
+    biology_terms = ['mendel', 'gamete', 'allele', 'chromosome', 'dna', 'rna', 'gene', 'protein', 'enzyme', 'cell', 'bacteria', 'plant', 'animal', 'organism', 'species', 'mitosis', 'meiosis', 'mutation', 'evolution', 'photosynthesis', 'respiration', 'ecology', 'ecosystem', 'taxonomy', 'anatomy', 'physiology', 'hormone', 'neuron', 'immune', 'antibody', 'antigen', 'virus', 'genetics', 'peptidoglycan', 'chloroplast', 'mitochondria', 'membrane', 'nucleotide', 'amino acid', 'lipid', 'polysaccharide', 'hemoglobin']
+    chemistry_terms = ['reaction', 'acid', 'base', 'butanoic', 'alcohol', 'aldehyde', 'ketone', 'ether', 'ester', 'amine', 'bond', 'mole', 'compound', 'organic', 'element', 'periodic', 'ion', 'cation', 'anion', 'oxidation', 'reduction', 'redox', 'galvanic', 'electrochemical', 'equilibrium', 'catalyst', 'polymer', 'isomer', 'electrode', 'electrolysis', 'solution', 'solvent', 'ph', 'titration', 'molar', 'enthalpy', 'entropy', 'molecular', 'atomic', 'valence', 'orbital', 'hybridization', 'isoelectronic', 'isostructural', 'deprotonation', 'aromatic']
+    math_terms = ['matrix', 'integral', 'derivative', 'differential', 'probability', 'vector', 'calculus', 'equation', 'polynomial', 'function', 'limit', 'series', 'sequence', 'determinant', 'eigenvalue', 'trigonometric', 'logarithm', 'exponential', 'algebra', 'geometry', 'theorem', 'proof', 'inequality', 'permutation', 'combination', 'statistics', 'mean', 'variance', 'graph', 'coordinate', 'parabola', 'ellipse', 'hyperbola', 'tangent', 'normal', 'binomial']
+    physics_terms = ['force', 'velocity', 'acceleration', 'mass', 'energy', 'power', 'momentum', 'electric', 'magnetic', 'field', 'wave', 'frequency', 'wavelength', 'optics', 'lens', 'mirror', 'circuit', 'resistance', 'current', 'voltage', 'capacitor', 'inductor', 'thermodynamics', 'heat', 'temperature', 'pressure', 'torque', 'angular', 'gravitational', 'potential', 'kinetic', 'permittivity', 'electromagnetic', 'refraction', 'diffraction', 'interference', 'photoelectric', 'quantum', 'frictional']
+
+    bio_score = sum(1 for k in biology_terms if k in t)
+    chem_score = sum(1 for k in chemistry_terms if k in t)
+    math_score = sum(1 for k in math_terms if k in t)
+    phys_score = sum(1 for k in physics_terms if k in t)
+
+    max_score = max(bio_score, chem_score, math_score, phys_score)
+    if max_score > 0:
+        if bio_score == max_score: return 'Biology'
+        if chem_score == max_score: return 'Chemistry'
+        if math_score == max_score: return 'Mathematics'
+        if phys_score == max_score: return 'Physics'
+    return None
+
 def balance_and_renumber_sections(questions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Ensures questions per section are independently renumbered 1..N cleanly."""
+    """Classifies questions into 4 subjects and ensures 1..N renumbering per section."""
+    total_q = len(questions)
+    quarter = max(1, total_q // 4)
+
+    # 1. Classify each question using keyword intelligence or 4-quarter partition
+    for idx, q in enumerate(questions):
+        raw_text = q.get('text', '')
+        classified = classify_subject_keywords(raw_text)
+        if classified:
+            q['section'] = classified
+        elif not q.get('section') or q['section'] == 'General' or q['section'] == 'Physics':
+            # NEST order: Biology (Q1-20), Chemistry (Q21-40), Mathematics (Q41-60), Physics (Q61-80)
+            if idx < quarter:
+                q['section'] = 'Biology'
+            elif idx < 2 * quarter:
+                q['section'] = 'Chemistry'
+            elif idx < 3 * quarter:
+                q['section'] = 'Mathematics'
+            else:
+                q['section'] = 'Physics'
+
     section_counters = {"Physics": 0, "Chemistry": 0, "Mathematics": 0, "Biology": 0}
     balanced = []
     for q in questions:
