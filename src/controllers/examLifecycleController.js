@@ -58,15 +58,14 @@ export const startAttempt = async (req, res) => {
     const { data: attempt, error: attemptErr } = await supabase
       .from('attempts')
       .insert({
-        org_id: orgId,
         test_id: testId,
         student_id: studentId,
         started_at: startedAt.toISOString(),
         server_deadline: serverDeadline.toISOString(),
         status: 'in_progress',
         warning_count: 0,
-        ip_address: req.ip,
-        user_agent: req.headers['user-agent']
+        ip_address: req.ip || null,
+        user_agent: req.headers['user-agent'] || null
       })
       .select()
       .single();
