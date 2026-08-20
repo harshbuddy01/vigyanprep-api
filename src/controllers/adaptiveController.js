@@ -113,59 +113,77 @@ const AI_MODELS = [
 
 function buildQuestionPrompt(examType, subject, chapterName, subTopics, count, difficulty, weakSubTopics, seenPrompts = []) {
   const focusInstruction = weakSubTopics && weakSubTopics.length > 0
-    ? `\n\nIMPORTANT: The student previously struggled with these specific sub-topics: ${weakSubTopics.join(', ')}. Generate at least ${Math.ceil(count * 0.6)} questions targeting these weak areas to help remediate their understanding.`
+    ? `\n\n🎯 TARGET WEAK CONCEPTS: The student previously made mistakes on: ${weakSubTopics.join(', ')}. Dedicate at least ${Math.ceil(count * 0.5)} questions to rigorously test these specific sub-topics.`
     : '';
 
   const excludeInstruction = seenPrompts && seenPrompts.length > 0
-    ? `\n\nDO NOT repeat or generate similar questions to these previously answered questions: ${seenPrompts.slice(0, 6).join(' | ')}`
+    ? `\n\n⛔ ANTI-REPEAT: Do NOT duplicate or closely rephrase these previously solved questions: ${seenPrompts.slice(0, 6).join(' | ')}`
     : '';
 
-  return `You are an expert scientific examination creator for competitive Indian science entrance exams (IISER IAT, NISER NEST, ISI).
+  let difficultyDirective = '';
+  if (difficulty === 'hard') {
+    difficultyDirective = `
+🔥 CRITICAL DIFFICULTY LEVEL: HARD / ADVANCED / OLYMPIAD (IISER IAT, NISER NEST, JEE Advanced Standard)
+1. ZERO basic, 1-step formula-substitution questions.
+2. Every question MUST involve MULTI-CONCEPT INTERLINKING (e.g. Conservation of Energy + Projectile Motion, Rotational Dynamics + Friction, Electrostatics + SHM, Multi-step Organic Mechanisms, Calculus with Inequalities).
+3. MANDATORY QUESTION TYPES TO INCLUDE IN THIS SET OF ${count} QUESTIONS:
+   - At least 1 ASSERTION-REASON question:
+     "Assertion (A): [Statement]\nReason (R): [Statement]\nChoose the correct option:"
+     (A) Both (A) and (R) are true and (R) is the correct explanation of (A)
+     (B) Both (A) and (R) are true but (R) is NOT the correct explanation of (A)
+     (C) (A) is true but (R) is false
+     (D) (A) is false but (R) is true
+   - At least 1 MULTI-STATEMENT EVALUATION question:
+     "Consider the following statements regarding [Concept]:\nI. [Statement 1]\nII. [Statement 2]\nIII. [Statement 3]\nWhich of the statements given above is/are correct?"
+     (A) I and II only   (B) II and III only   (C) I and III only   (D) I, II and III
+   - For Chemistry: Include multi-step reaction sequences (e.g. $A \\xrightarrow{\\text{reagent 1}} B \\xrightarrow{\\text{reagent 2}} C$) with stereochemistry, or coordination chemistry with CFT and isomerism.
+   - For Physics: Include non-trivial boundary values, constraint relations, or graphical interpretations ($P-V$ thermodynamic cycles, $v-t$ velocity-time curves with non-constant acceleration, $U(x)$ potential energy curves).
+   - For Mathematics: Include non-trivial substitutions, calculus with inequalities, combinatorics with generating functions or Diophantine equations.`;
+  } else if (difficulty === 'medium') {
+    difficultyDirective = `
+⚡ DIFFICULTY LEVEL: STANDARD EXAM (IISER IAT / NISER NEST Standard)
+1. Questions must require 2-3 step analytical reasoning, conceptual edge cases, or non-trivial algebra.
+2. Include at least 1 Multi-Statement evaluation question ("Consider the following statements... Which is/are correct?") or Assertion-Reason question.
+3. For Physics/Chemistry: Include graphical interpretation ($P-V$ diagrams, rate curves) or conceptual reaction pathways.
+4. Avoid trivial direct formula recall.`;
+  } else {
+    difficultyDirective = `
+🌱 DIFFICULTY LEVEL: FOUNDATION
+1. Focus on core conceptual principles, fundamental laws, and 1-2 step direct applications.
+2. Emphasize clarity and foundational understanding.`;
+  }
 
-Generate EXACTLY ${count} unique, high-quality multiple-choice questions.
+  return `You are a Chief Examination Paper Creator for top Indian national science entrance examinations (IISER Aptitude Test - IAT, NISER NEST, ISI Entrance).
 
+Generate EXACTLY ${count} unique, high-quality multiple-choice questions for:
 **Exam**: ${examType.toUpperCase()}
 **Subject**: ${subject}
 **Chapter**: ${chapterName}
 **Target Sub-topics**: ${subTopics.join(', ')}
 **Difficulty**: ${difficulty}
+${difficultyDirective}
 ${focusInstruction}
 ${excludeInstruction}
 
-STRICT JSON OUTPUT RULES:
-1. You MUST output a valid JSON object with a root "questions" array containing EXACTLY ${count} question objects.
+STRICT JSON OUTPUT SPECIFICATIONS:
+1. You MUST output a single valid JSON object with a root "questions" array containing EXACTLY ${count} question objects.
 2. Every question object MUST have:
    - "subTopic": (string matching one of the target sub-topics)
-   - "questionText": (string with LaTeX math enclosed in $...$ or $$...$$)
+   - "questionText": (complete problem statement in KaTeX LaTeX math enclosed in $...$ or $$...$$)
    - "options": (array of exactly 4 strings: [option A, option B, option C, option D])
    - "correctAnswer": ("A" | "B" | "C" | "D")
    - "difficulty": "${difficulty}"
-   - "explanation": (step-by-step mathematical derivation with KaTeX math)
-3. CRITICAL: All LaTeX backslashes MUST be escaped with double backslashes in JSON strings (e.g. \\\\frac{a}{b}, \\\\sqrt{x}, \\\\omega, \\\\theta, \\\\vec{F}, \\\\mu, \\\\text{...}). Never produce raw control characters like form-feed or unescaped backslashes.
-4. Questions must be challenging, rigorous, and test scientific reasoning rather than trivia.
-5. Output ONLY the JSON object. Do NOT wrap in markdown backticks.
-
-Example JSON structure:
-{
-  "questions": [
-    {
-      "subTopic": "${subTopics[0] || chapterName}",
-      "questionText": "A particle moves such that its velocity is $v(t) = 3t^2 + 2\\\\text{ m/s}$. Find its displacement between $t = 0$ and $t = 2\\\\text{ s}$.",
-      "options": ["$8\\\\text{ m}$", "$12\\\\text{ m}$", "$14\\\\text{ m}$", "$16\\\\text{ m}$"],
-      "correctAnswer": "B",
-      "difficulty": "${difficulty}",
-      "explanation": "Step 1: Displacement $s = \\\\int_0^2 (3t^2 + 2)\\\\ dt = [t^3 + 2t]_0^2 = 8 + 4 = 12\\\\text{ m}$."
-    }
-  ]
-}`;
+   - "explanation": (step-by-step mathematical/conceptual derivation with KaTeX math)
+3. CRITICAL: All LaTeX backslashes MUST be double-escaped in JSON strings (e.g. \\\\frac{a}{b}, \\\\sqrt{x}, \\\\text{...}, \\\\xrightarrow{...}, \\\\vec{F}, \\\\theta, \\\\omega).
+4. Output ONLY the raw JSON object. Do NOT wrap in markdown backticks or commentary.`;
 }
 
-async function callOpenRouter(prompt, model, maxTokens = 3500) {
+async function callOpenRouter(prompt, model, maxTokens = 4000) {
   if (!OPENROUTER_KEY) return null;
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
 
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
@@ -209,7 +227,7 @@ async function callOpenRouter(prompt, model, maxTokens = 3500) {
   }
 }
 
-async function callGroq(prompt, maxTokens = 3500) {
+async function callGroq(prompt, maxTokens = 4000) {
   if (!GROQ_KEY) return null;
 
   try {
@@ -261,48 +279,49 @@ function parseAIResponse(rawContent) {
   // Strip markdown code fences if present
   text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
 
-  // Sanitize invalid control characters before JSON parse
-  text = text.replace(/[\x00-\x09\x0b\x0c\x0e-\x1f]/g, (match) => {
-    if (match === '\x0c') return '\\f';
-    return ' ';
-  });
-
+  // 1. Direct JSON parse
   try {
     const parsed = JSON.parse(text);
-
-    // Handle both { "questions": [...] } and direct [...]
-    if (Array.isArray(parsed)) return parsed;
-    if (parsed.questions && Array.isArray(parsed.questions)) return parsed.questions;
-    if (parsed.data && Array.isArray(parsed.data)) return parsed.data;
-
-    // If it's a single question object, wrap in array
+    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    if (parsed.questions && Array.isArray(parsed.questions) && parsed.questions.length > 0) return parsed.questions;
+    if (parsed.data && Array.isArray(parsed.data) && parsed.data.length > 0) return parsed.data;
     if (parsed.questionText && parsed.options) return [parsed];
+  } catch {}
 
-    return [];
-  } catch (e) {
-    console.error('[Adaptive] JSON parse failed, trying fallback:', e.message);
+  // 2. Control character sanitization
+  try {
+    const sanitized = text.replace(/[\x00-\x09\x0b\x0c\x0e-\x1f]/g, (ch) => {
+      if (ch === '\x0c') return '\\f';
+      return ' ';
+    });
+    const parsed = JSON.parse(sanitized);
+    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    if (parsed.questions && Array.isArray(parsed.questions) && parsed.questions.length > 0) return parsed.questions;
+  } catch {}
 
-    // Attempt to extract JSON object with questions array
-    const objMatch = text.match(/\{[\s\S]*"questions"[\s\S]*\}/);
-    if (objMatch) {
-      try {
-        const obj = JSON.parse(objMatch[0]);
-        if (obj.questions && Array.isArray(obj.questions)) return obj.questions;
-      } catch {}
+  // 3. Regex block matching for {"questions": [...]}
+  try {
+    const objMatch = text.match(/\{[\s\S]*"questions"\s*:\s*(\[[\s\S]*\])[\s\S]*\}/);
+    if (objMatch && objMatch[1]) {
+      const parsedArr = JSON.parse(objMatch[1]);
+      if (Array.isArray(parsedArr) && parsedArr.length > 0) return parsedArr;
     }
+  } catch {}
 
-    // Attempt to extract JSON array from the text
-    const arrayMatch = text.match(/\[[\s\S]*\]/);
-    if (arrayMatch) {
-      try {
-        return JSON.parse(arrayMatch[0]);
-      } catch (e2) {
-        console.error('[Adaptive] Fallback JSON parse also failed');
+  // 4. Regex individual question extractor
+  const extracted = [];
+  const qBlockRegex = /\{[^{}]*"questionText"[\s\S]*?"options"[\s\S]*?"correctAnswer"[\s\S]*?\}/g;
+  let match;
+  while ((match = qBlockRegex.exec(text)) !== null) {
+    try {
+      const singleQ = JSON.parse(match[0]);
+      if (singleQ.questionText && singleQ.options) {
+        extracted.push(singleQ);
       }
-    }
-
-    return [];
+    } catch {}
   }
+
+  return extracted;
 }
 
 async function generateQuestionsWithAI(examType, subject, chapterName, subTopics, count, difficulty, weakSubTopics, seenPrompts = []) {
@@ -572,10 +591,11 @@ export async function generateTest(req, res) {
         .eq('exam_type', examType.toLowerCase())
         .eq('subject', subject)
         .eq('chapter_name', chapterName)
+        .eq('difficulty', difficulty)
         .eq('is_flagged', false);
 
-      if (selectedSubTopics && Array.isArray(selectedSubTopics) && selectedSubTopics.length > 0) {
-        cacheQuery = cacheQuery.in('sub_topic', selectedSubTopics);
+      if (activeSubTopics && Array.isArray(activeSubTopics) && activeSubTopics.length > 0) {
+        cacheQuery = cacheQuery.in('sub_topic', activeSubTopics);
       }
 
       if (seenQuestionIds.length > 0) {
