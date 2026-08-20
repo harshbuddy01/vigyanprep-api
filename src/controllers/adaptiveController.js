@@ -104,11 +104,11 @@ const CHAPTER_DATA = {
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY;
 const GROQ_KEY = process.env.GROQ_API_KEY;
 
-// Primary models in priority order
+// Primary models in priority order (Fastest first to guarantee sub-3-second generation)
 const AI_MODELS = [
-  { provider: 'openrouter', model: 'deepseek/deepseek-chat', name: 'DeepSeek V3' },
   { provider: 'openrouter', model: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
   { provider: 'openrouter', model: 'meta-llama/llama-3.3-70b-instruct', name: 'Llama 3.3 70B' },
+  { provider: 'openrouter', model: 'deepseek/deepseek-chat', name: 'DeepSeek V3' },
 ];
 
 function buildQuestionPrompt(examType, subject, chapterName, subTopics, count, difficulty, weakSubTopics, seenPrompts = []) {
@@ -160,10 +160,13 @@ Example JSON structure:
 }`;
 }
 
-async function callOpenRouter(prompt, model, maxTokens = 6000) {
+async function callOpenRouter(prompt, model, maxTokens = 3500) {
   if (!OPENROUTER_KEY) return null;
 
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -181,8 +184,11 @@ async function callOpenRouter(prompt, model, maxTokens = 6000) {
         max_tokens: maxTokens,
         temperature: 0.3,
         response_format: { type: 'json_object' }
-      })
+      }),
+      signal: controller.signal
     });
+
+    clearTimeout(timeoutId);
 
     if (!res.ok) {
       console.warn(`[Adaptive] OpenRouter ${model} returned ${res.status}`);
@@ -203,10 +209,13 @@ async function callOpenRouter(prompt, model, maxTokens = 6000) {
   }
 }
 
-async function callGroq(prompt, maxTokens = 6000) {
+async function callGroq(prompt, maxTokens = 3500) {
   if (!GROQ_KEY) return null;
 
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -222,8 +231,11 @@ async function callGroq(prompt, maxTokens = 6000) {
         max_tokens: maxTokens,
         temperature: 0.3,
         response_format: { type: 'json_object' }
-      })
+      }),
+      signal: controller.signal
     });
+
+    clearTimeout(timeoutId);
 
     if (!res.ok) return null;
 
