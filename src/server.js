@@ -49,6 +49,7 @@ import adminResultsControlRoutes from './routes/adminResultsControlRoutes.js';
 import examAccessRoutes from './routes/examAccessRoutes.js';
 import studentSubscriptionRoutes from './routes/studentSubscriptionRoutes.js';
 import studentAnalyticsRoutes from './routes/studentAnalyticsRoutes.js';
+import adaptiveRoutes from './routes/adaptiveRoutes.js'; // 🧠 Adaptive Chapter Revision Engine
 import { startReminderScheduler } from './services/reminderScheduler.js';
 
 // Validate environment
@@ -155,6 +156,7 @@ app.use('/api/challenges', challengeRoutes);
 app.use('/api/admin/results-control', adminResultsControlRoutes);
 app.use('/api/exam-access', examAccessRoutes);
 app.use('/api/student', studentSubscriptionRoutes);
+app.use('/api/adaptive', adaptiveRoutes); // 🧠 Adaptive Chapter Revision Engine
 
 app.get('/', (req, res) => {
   res.json({
