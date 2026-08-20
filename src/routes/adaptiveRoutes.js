@@ -7,6 +7,7 @@ import { Router } from 'express';
 import { verifyAuth } from '../middlewares/auth.js';
 import {
   getChapters,
+  checkAccessStatus,
   generateTest,
   submitTest,
   getChapterMastery,
@@ -20,7 +21,10 @@ const router = Router();
 router.get('/chapters', getChapters);
 
 // ─── AUTHENTICATED (student must be logged in) ──────────
-// Generate an adaptive practice test
+// Check paid access status
+router.get('/check-access', verifyAuth, checkAccessStatus);
+
+// Generate an adaptive practice test (Paid only)
 router.post('/generate-test', verifyAuth, generateTest);
 
 // Submit test answers and get diagnosis

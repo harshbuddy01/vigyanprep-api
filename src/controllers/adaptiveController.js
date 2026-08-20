@@ -324,6 +324,76 @@ export async function getChapters(req, res) {
   }
 }
 
+// ─── PAID ACCESS HELPER ───────────────────────────────────────────────
+export async function checkPaidAccess(studentEmail, studentId) {
+  if (!studentEmail) return false;
+  const isUUID = (str) => /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(str);
+
+  try {
+    // 1. Check subscriptions table for active pass
+    let subQuery = supabase
+      .from('subscriptions')
+      .select('id, status, plan_name, exam_type')
+      .eq('status', 'active');
+
+    if (studentId && isUUID(studentId)) {
+      subQuery = subQuery.or(`student_id.eq.${studentId},student_email.ilike."${studentEmail.trim()}"`);
+    } else {
+      subQuery = subQuery.ilike('student_email', studentEmail.trim());
+    }
+
+    const { data: activeSubs } = await subQuery.limit(1);
+    if (activeSubs && activeSubs.length > 0) return true;
+
+    // 2. Check purchased_tests table
+    const { data: purchased } = await supabase
+      .from('purchased_tests')
+      .select('id')
+      .ilike('email', studentEmail.trim())
+      .limit(1);
+    if (purchased && purchased.length > 0) return true;
+
+    // 3. Check successful payment transactions
+    const { data: payments } = await supabase
+      .from('payment_transactions')
+      .select('id')
+      .ilike('email', studentEmail.trim())
+      .eq('status', 'paid')
+      .limit(1);
+    if (payments && payments.length > 0) return true;
+
+    return false;
+  } catch (err) {
+    console.warn('[Adaptive] checkPaidAccess warning:', err.message);
+    return false;
+  }
+}
+
+/**
+ * GET /api/adaptive/check-access
+ * Check if the logged-in student has paid access to AI revision
+ */
+export async function checkAccessStatus(req, res) {
+  try {
+    const studentEmail = req.user?.email;
+    const studentId = req.user?.id;
+
+    if (!studentEmail) {
+      return res.status(401).json({ success: false, isPaid: false, error: 'Authentication required' });
+    }
+
+    const isPaid = await checkPaidAccess(studentEmail, studentId);
+    return res.json({
+      success: true,
+      isPaid,
+      studentEmail,
+      message: isPaid ? 'Full access granted' : 'Subscription required to unlock AI revision'
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, isPaid: false, error: error.message });
+  }
+}
+
 /**
  * POST /api/adaptive/generate-test
  * Generate an adaptive practice test for a student
@@ -332,8 +402,20 @@ export async function getChapters(req, res) {
 export async function generateTest(req, res) {
   try {
     const studentEmail = req.user?.email;
+    const studentId = req.user?.id;
     if (!studentEmail) {
       return res.status(401).json({ success: false, error: 'Authentication required' });
+    }
+
+    // 🔒 PAID STUDENT GATE: Check if student has purchased any test or pass
+    const isPaid = await checkPaidAccess(studentEmail, studentId);
+    if (!isPaid) {
+      return res.status(403).json({
+        success: false,
+        code: 'PAID_STUDENTS_ONLY',
+        error: 'Smart AI Daily Chapter Revision is an exclusive feature for enrolled students with an active test series or pass. Please purchase a test pass to unlock unlimited AI revisions.',
+        redirect: 'https://vigyanprep.com/tests'
+      });
     }
 
     const {
