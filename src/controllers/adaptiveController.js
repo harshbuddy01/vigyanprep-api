@@ -327,6 +327,13 @@ export async function getChapters(req, res) {
 // ─── PAID ACCESS HELPER ───────────────────────────────────────────────
 export async function checkPaidAccess(studentEmail, studentId) {
   if (!studentEmail) return false;
+
+  // Platform admins & owner always have full preview access
+  const emailLower = studentEmail.toLowerCase().trim();
+  if (emailLower === 'anandharsh437@gmail.com' || emailLower.includes('admin@') || emailLower.startsWith('admin_')) {
+    return true;
+  }
+
   const isUUID = (str) => /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(str);
 
   try {
