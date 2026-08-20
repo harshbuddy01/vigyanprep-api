@@ -155,7 +155,7 @@ function buildQuestionPrompt(examType, subject, chapterName, subTopics, count, d
 
   return `You are a Chief Examination Paper Creator for top Indian national science entrance examinations (IISER Aptitude Test - IAT, NISER NEST, ISI Entrance).
 
-Generate EXACTLY ${count} unique, high-quality multiple-choice questions for:
+Generate EXACTLY ${count} unique, high-quality, CONCEPT-BUILDER multiple-choice questions for:
 **Exam**: ${examType.toUpperCase()}
 **Subject**: ${subject}
 **Chapter**: ${chapterName}
@@ -165,6 +165,11 @@ ${difficultyDirective}
 ${focusInstruction}
 ${excludeInstruction}
 
+🧠 CONCEPT-BUILDER PHILOSOPHY (NO FORMULA RUNNING):
+- Questions must be deeply rooted in FUNDAMENTAL SCIENTIFIC CONCEPTS rather than blind numerical computation.
+- Force students to analyze physical mechanisms, symmetries, boundary constraints, reaction intermediates, stereochemical pathways, and mathematical invariants.
+- Distractors (incorrect options) must represent genuine conceptual misconceptions rather than random arithmetic errors.
+
 STRICT JSON OUTPUT SPECIFICATIONS:
 1. You MUST output a single valid JSON object with a root "questions" array containing EXACTLY ${count} question objects.
 2. Every question object MUST have:
@@ -173,7 +178,7 @@ STRICT JSON OUTPUT SPECIFICATIONS:
    - "options": (array of exactly 4 strings: [option A, option B, option C, option D])
    - "correctAnswer": ("A" | "B" | "C" | "D")
    - "difficulty": "${difficulty}"
-   - "explanation": (step-by-step mathematical/conceptual derivation with KaTeX math)
+   - "explanation": (MUST start with "**🎯 Core Concept:** [Explanation of fundamental law/mechanism]" followed by "**📐 Step-by-Step Derivation:**" and "**💡 Conceptual Takeaway:**")
 3. CRITICAL: All LaTeX backslashes MUST be double-escaped in JSON strings (e.g. \\\\frac{a}{b}, \\\\sqrt{x}, \\\\text{...}, \\\\xrightarrow{...}, \\\\vec{F}, \\\\theta, \\\\omega).
 4. Output ONLY the raw JSON object. Do NOT wrap in markdown backticks or commentary.`;
 }
