@@ -9,7 +9,7 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 
 // Middlewares
-import { apiLimiter, loginLimiter, paymentLimiter } from './middlewares/rateLimiter.js';
+import { apiLimiter, loginLimiter, paymentLimiter, publicLimiter } from './middlewares/rateLimiter.js';
 import { validateEnv } from './config/envValidator.js';
 
 // Route Imports
@@ -64,7 +64,12 @@ app.set('trust proxy', 1);
 
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
-  contentSecurityPolicy: false,
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+    },
+  },
 }));
 
 const allowedOrigins = [
@@ -82,22 +87,32 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: function(origin, callback) {
+    // Allow requests with no origin (mobile apps, curl, server-to-server)
+    if (!origin) return callback(null, true);
+    // Allow all vigyanprep.com subdomains and localhost dev servers
     if (
-      !origin ||
       allowedOrigins.includes(origin) ||
-      /\.vigyanprep\.com$/.test(origin) ||
-      /\.vercel\.app$/.test(origin)
+      /\.vigyanprep\.com$/.test(origin)
     ) {
-      callback(null, true);
-    } else {
-      callback(null, true);
+      return callback(null, true);
     }
+    // Block all other origins
+    callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
 }));
-app.options('*', cors());
+app.options('*', cors({
+  origin: function(origin, callback) {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin) || /\.vigyanprep\.com$/.test(origin)) {
+      return callback(null, true);
+    }
+    callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true
+}));
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -114,7 +129,7 @@ app.use('/uploads', express.static(path.join(__dirname, '../public/uploads'), {
 }));
 
 // Public Endpoints
-app.use('/api/public', publicRoutes);
+app.use('/api/public', publicLimiter, publicRoutes);
 app.use('/api/admin/auth', loginLimiter, adminAuthRoutes);
 
 // Mounted Admin Routes
@@ -158,11 +173,14 @@ app.use('/api/exam-access', examAccessRoutes);
 app.use('/api/student', studentSubscriptionRoutes);
 app.use('/api/adaptive', adaptiveRoutes); // 🧠 Adaptive Chapter Revision Engine
 
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString(), uptime: process.uptime() });
+});
+
 app.get('/', (req, res) => {
   res.json({
     name: 'Vigyan.prep API Engine',
-    status: 'online',
-    version: '3.0.0'
+    status: 'online'
   });
 });
 

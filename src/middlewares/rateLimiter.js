@@ -74,9 +74,26 @@ export const paymentLimiter = rateLimit({
     legacyHeaders: false,
 });
 
+/**
+ * Public endpoints rate limiter
+ * Prevents scraping and abuse of public catalog endpoints
+ */
+export const publicLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000, // 1 minute
+    max: 60, // 60 requests per minute per IP
+    message: {
+        success: false,
+        message: 'Too many requests, please slow down.',
+        code: 'PUBLIC_RATE_LIMIT_EXCEEDED'
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
 export default {
     apiLimiter,
     adminLimiter,
     loginLimiter,
-    paymentLimiter
+    paymentLimiter,
+    publicLimiter
 };
