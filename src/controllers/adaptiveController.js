@@ -482,37 +482,42 @@ export async function generateTest(req, res) {
       subject,
       chapterName,
       selectedSubTopics,
-      questionCount = 10,
+      subTopics,
+      questionCount,
+      count: directCount,
       durationMinutes = 15,
       difficulty = 'medium'
     } = req.body;
+
+    const requestedSubTopics = selectedSubTopics || subTopics;
+    const requestedCount = questionCount || directCount || 10;
 
     // Validate inputs
     if (!subject || !chapterName) {
       return res.status(400).json({
         success: false,
-        error: 'subject and chapterName are required'
+        error: 'Missing required fields: subject and chapterName are required'
       });
     }
 
-    const chapters = CHAPTER_DATA[examType.toLowerCase()];
-    if (!chapters || !chapters[subject]) {
-      return res.status(400).json({ success: false, error: 'Invalid examType or subject' });
-    }
+    const examChapters = CHAPTER_DATA[examType.toLowerCase()] || CHAPTER_DATA.iat;
+    const subjectChapters = examChapters[subject] || [];
+    const chapterDef = subjectChapters.find(
+      c => c.name.toLowerCase() === chapterName.toLowerCase()
+    );
 
-    const chapterDef = chapters[subject].find(c => c.name === chapterName);
     if (!chapterDef) {
-      return res.status(400).json({
+      return res.status(404).json({
         success: false,
         error: `Chapter "${chapterName}" not found in ${subject} for ${examType}`
       });
     }
 
-    const activeSubTopics = (selectedSubTopics && Array.isArray(selectedSubTopics) && selectedSubTopics.length > 0)
-      ? selectedSubTopics
+    const activeSubTopics = (requestedSubTopics && Array.isArray(requestedSubTopics) && requestedSubTopics.length > 0)
+      ? requestedSubTopics
       : chapterDef.subTopics;
 
-    const count = Math.min(Math.max(parseInt(questionCount) || 10, 3), 30);
+    const count = Math.min(Math.max(parseInt(requestedCount) || 10, 3), 30);
     const durationSec = Math.min(Math.max(parseInt(durationMinutes) || 15, 3), 120) * 60;
 
     // ─── STEP 0: Fetch questions previously seen by this student to prevent repetition ───
