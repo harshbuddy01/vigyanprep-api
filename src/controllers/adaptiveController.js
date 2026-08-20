@@ -601,9 +601,11 @@ export async function generateTest(req, res) {
         difficulty: q.difficulty
       }));
 
-      // Increment times_served
+      // Increment times_served (fire & forget)
       const ids = cachedQuestions.map(q => q.id);
-      supabase.rpc('increment_times_served', { question_ids: ids }).catch(() => {});
+      if (ids.length > 0) {
+        supabase.rpc('increment_times_served', { question_ids: ids }).then(() => {}, () => {});
+      }
     } else {
       // Generate fresh questions with AI
       const needed = count - cachedQuestions.length;
@@ -853,7 +855,7 @@ export async function submitTest(req, res) {
         supabase.rpc('update_question_stats', {
           q_id: q.id,
           was_correct: isCorrect
-        }).catch(() => {});
+        }).then(() => {}, () => {});
       }
     }
 
