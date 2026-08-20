@@ -116,3 +116,55 @@ CREATE TABLE IF NOT EXISTS student_concept_mastery (
 CREATE INDEX IF NOT EXISTS idx_scm_student ON student_concept_mastery(student_email);
 CREATE INDEX IF NOT EXISTS idx_scm_chapter ON student_concept_mastery(student_email, exam_type, chapter_name);
 CREATE INDEX IF NOT EXISTS idx_scm_weak ON student_concept_mastery(student_email, mastery_pct) WHERE mastery_pct < 60;
+
+-- 5. BOOKMARKED QUESTIONS
+CREATE TABLE IF NOT EXISTS bookmarked_questions (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    student_email   TEXT NOT NULL,
+    question_id     TEXT NOT NULL,
+    question_text   TEXT NOT NULL,
+    options         JSONB,
+    correct_answer  TEXT,
+    explanation     TEXT,
+    sub_topic       TEXT,
+    chapter_name    TEXT,
+    subject         TEXT,
+    exam_type       TEXT DEFAULT 'iat',
+    difficulty      TEXT DEFAULT 'medium',
+    source          TEXT DEFAULT 'adaptive',
+    notes           TEXT,
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(student_email, question_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_bookmarks_student ON bookmarked_questions(student_email);
+CREATE INDEX IF NOT EXISTS idx_bookmarks_subject ON bookmarked_questions(student_email, subject);
+CREATE INDEX IF NOT EXISTS idx_bookmarks_chapter ON bookmarked_questions(student_email, chapter_name);
+
+-- 6. STORED PROCEDURES (RPCs)
+CREATE OR REPLACE FUNCTION increment_times_served(question_ids UUID[])
+RETURNS VOID AS $$
+BEGIN
+    UPDATE adaptive_question_bank
+    SET times_served = times_served + 1
+    WHERE id = ANY(question_ids);
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION update_question_stats(q_id UUID, is_correct BOOLEAN)
+RETURNS VOID AS $$
+BEGIN
+    UPDATE adaptive_question_bank
+    SET times_served = times_served + 1,
+        times_correct = times_correct + (CASE WHEN is_correct THEN 1 ELSE 0 END)
+    WHERE id = q_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- 7. PERMISSIONS & GRANTS
+GRANT ALL ON TABLE adaptive_chapters TO anon, authenticated, service_role;
+GRANT ALL ON TABLE adaptive_question_bank TO anon, authenticated, service_role;
+GRANT ALL ON TABLE adaptive_attempts TO anon, authenticated, service_role;
+GRANT ALL ON TABLE student_concept_mastery TO anon, authenticated, service_role;
+GRANT ALL ON TABLE bookmarked_questions TO anon, authenticated, service_role;
+

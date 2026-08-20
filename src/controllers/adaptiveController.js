@@ -384,36 +384,42 @@ export async function checkPaidAccess(studentEmail, studentId) {
 
   try {
     // 1. Check subscriptions table for active pass
-    let subQuery = supabase
-      .from('subscriptions')
-      .select('id, status, plan_name, exam_type')
-      .eq('status', 'active');
+    try {
+      let subQuery = supabase
+        .from('subscriptions')
+        .select('id, status, plan_name, exam_type')
+        .eq('status', 'active');
 
-    if (studentId && isUUID(studentId)) {
-      subQuery = subQuery.or(`student_id.eq.${studentId},student_email.ilike."${studentEmail.trim()}"`);
-    } else {
-      subQuery = subQuery.ilike('student_email', studentEmail.trim());
-    }
+      if (studentId && isUUID(studentId)) {
+        subQuery = subQuery.or(`student_id.eq.${studentId},student_email.eq.${studentEmail.trim()}`);
+      } else {
+        subQuery = subQuery.ilike('student_email', studentEmail.trim());
+      }
 
-    const { data: activeSubs } = await subQuery.limit(1);
-    if (activeSubs && activeSubs.length > 0) return true;
+      const { data: activeSubs, error: subErr } = await subQuery.limit(1);
+      if (!subErr && activeSubs && activeSubs.length > 0) return true;
+    } catch {}
 
     // 2. Check purchased_tests table
-    const { data: purchased } = await supabase
-      .from('purchased_tests')
-      .select('id')
-      .ilike('email', studentEmail.trim())
-      .limit(1);
-    if (purchased && purchased.length > 0) return true;
+    try {
+      const { data: purchased, error: purchErr } = await supabase
+        .from('purchased_tests')
+        .select('id')
+        .ilike('email', studentEmail.trim())
+        .limit(1);
+      if (!purchErr && purchased && purchased.length > 0) return true;
+    } catch {}
 
     // 3. Check successful payment transactions
-    const { data: payments } = await supabase
-      .from('payment_transactions')
-      .select('id')
-      .ilike('email', studentEmail.trim())
-      .eq('status', 'paid')
-      .limit(1);
-    if (payments && payments.length > 0) return true;
+    try {
+      const { data: payments, error: payErr } = await supabase
+        .from('payment_transactions')
+        .select('id')
+        .ilike('email', studentEmail.trim())
+        .eq('status', 'paid')
+        .limit(1);
+      if (!payErr && payments && payments.length > 0) return true;
+    } catch {}
 
     return false;
   } catch (err) {
