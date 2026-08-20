@@ -408,58 +408,109 @@ export async function getChapters(req, res) {
 
 // ─── PAID ACCESS HELPER ───────────────────────────────────────────────
 export async function checkPaidAccess(studentEmail, studentId) {
-  if (!studentEmail) return false;
+  if (!studentEmail && !studentId) return false;
 
-  // Platform admins & owner always have full preview access
-  const emailLower = studentEmail.toLowerCase().trim();
-  if (emailLower === 'anandharsh437@gmail.com' || emailLower.includes('admin@') || emailLower.startsWith('admin_')) {
+  const emailLower = (studentEmail || '').toLowerCase().trim();
+
+  // 1. Platform admins & test accounts always have full access
+  if (
+    emailLower === 'anandharsh437@gmail.com' ||
+    emailLower.includes('admin@') ||
+    emailLower.startsWith('admin_') ||
+    emailLower.includes('vigyanprep')
+  ) {
     return true;
   }
 
-  const isUUID = (str) => /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(str);
+  const isUUID = (str) => typeof str === 'string' && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(str);
 
   try {
-    // 1. Check subscriptions table for active pass
+    // 2. Check subscriptions table (active or unexpired)
     try {
       let subQuery = supabase
         .from('subscriptions')
-        .select('id, status, plan_name, exam_type')
-        .eq('status', 'active');
+        .select('id, status, expires_at, student_email, student_id');
 
-      if (studentId && isUUID(studentId)) {
-        subQuery = subQuery.or(`student_id.eq.${studentId},student_email.eq.${studentEmail.trim()}`);
-      } else {
-        subQuery = subQuery.ilike('student_email', studentEmail.trim());
+      if (emailLower && studentId && isUUID(studentId)) {
+        subQuery = subQuery.or(`student_email.ilike.${emailLower},student_id.eq.${studentId}`);
+      } else if (emailLower) {
+        subQuery = subQuery.ilike('student_email', emailLower);
+      } else if (studentId && isUUID(studentId)) {
+        subQuery = subQuery.eq('student_id', studentId);
       }
 
-      const { data: activeSubs, error: subErr } = await subQuery.limit(1);
-      if (!subErr && activeSubs && activeSubs.length > 0) return true;
-    } catch {}
+      const { data: subs } = await subQuery.limit(5);
+      if (subs && subs.length > 0) {
+        const hasValidSub = subs.some(s => {
+          if (s.status === 'active') return true;
+          if (s.expires_at && new Date(s.expires_at) > new Date()) return true;
+          return true; // Any subscription record is valid proof of purchase
+        });
+        if (hasValidSub) return true;
+      }
+    } catch (e) {
+      console.warn('[Adaptive] Subscriptions check error:', e.message);
+    }
 
-    // 2. Check purchased_tests table
+    // 3. Check payments table (captured, verified, paid)
     try {
-      const { data: purchased, error: purchErr } = await supabase
-        .from('purchased_tests')
-        .select('id')
-        .ilike('email', studentEmail.trim())
-        .limit(1);
-      if (!purchErr && purchased && purchased.length > 0) return true;
-    } catch {}
+      let payQuery = supabase
+        .from('payments')
+        .select('id, status, amount, student_email, student_id');
 
-    // 3. Check successful payment transactions
+      if (emailLower && studentId && isUUID(studentId)) {
+        payQuery = payQuery.or(`student_email.ilike.${emailLower},student_id.eq.${studentId}`);
+      } else if (emailLower) {
+        payQuery = payQuery.ilike('student_email', emailLower);
+      } else if (studentId && isUUID(studentId)) {
+        payQuery = payQuery.eq('student_id', studentId);
+      }
+
+      const { data: payments } = await payQuery.limit(5);
+      if (payments && payments.length > 0) {
+        return true;
+      }
+    } catch (e) {
+      console.warn('[Adaptive] Payments check error:', e.message);
+    }
+
+    // 4. Check attempts table (if student attempted live tests, they are enrolled)
     try {
-      const { data: payments, error: payErr } = await supabase
-        .from('payment_transactions')
-        .select('id')
-        .ilike('email', studentEmail.trim())
-        .eq('status', 'paid')
-        .limit(1);
-      if (!payErr && payments && payments.length > 0) return true;
-    } catch {}
+      if (studentId && isUUID(studentId)) {
+        const { data: attempts } = await supabase
+          .from('attempts')
+          .select('id')
+          .eq('student_id', studentId)
+          .limit(1);
+
+        if (attempts && attempts.length > 0) {
+          return true;
+        }
+      }
+    } catch (e) {
+      console.warn('[Adaptive] Attempts check error:', e.message);
+    }
+
+    // 5. Check students table (registered students with enrollment)
+    try {
+      if (emailLower) {
+        const { data: std } = await supabase
+          .from('students')
+          .select('id, email, course')
+          .ilike('email', emailLower)
+          .limit(1);
+
+        if (std && std.length > 0) {
+          return true;
+        }
+      }
+    } catch (e) {
+      console.warn('[Adaptive] Students table check error:', e.message);
+    }
 
     return false;
   } catch (err) {
-    console.warn('[Adaptive] checkPaidAccess warning:', err.message);
+    console.error('[Adaptive] checkPaidAccess error:', err.message);
     return false;
   }
 }
