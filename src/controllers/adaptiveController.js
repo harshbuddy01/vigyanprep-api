@@ -62,34 +62,42 @@ const CHAPTER_DATA = {
   },
   nest: {
     Physics: [
-      { name: 'Classical Mechanics', subTopics: ['Newton\'s Laws', 'Conservation Laws', 'Rotational Dynamics', 'Gravitation', 'Oscillations'] },
-      { name: 'Electromagnetism', subTopics: ['Electrostatics', 'Magnetostatics', 'Electromagnetic Induction', 'Maxwell\'s Equations', 'EM Waves'] },
-      { name: 'Optics & Waves', subTopics: ['Wave Optics', 'Interference', 'Diffraction', 'Polarization', 'Geometrical Optics'] },
-      { name: 'Thermodynamics & Statistical Mechanics', subTopics: ['Laws of Thermodynamics', 'Entropy', 'Kinetic Theory', 'Ideal Gas', 'Phase Transitions'] },
-      { name: 'Modern Physics', subTopics: ['Quantum Mechanics Basics', 'Photoelectric Effect', 'Bohr Model', 'Nuclear Physics', 'Special Relativity'] },
+      { name: 'Classical Mechanics', subTopics: ['Kinematics in 1D & 2D', 'Newton\'s Laws & Applications', 'Work, Energy & Power', 'Center of Mass & Collisions', 'Rotational Dynamics & Moment of Inertia', 'Gravitation & Kepler\'s Laws', 'Simple Harmonic Motion'] },
+      { name: 'Electromagnetism', subTopics: ['Coulomb\'s Law & Electric Field', 'Gauss\'s Law & Capacitors', 'Current Electricity & Circuits', 'Magnetic Field & Biot-Savart Law', 'Electromagnetic Induction & AC', 'Maxwell\'s Equations & EM Waves'] },
+      { name: 'Optics & Waves', subTopics: ['Ray Optics (Reflection, Refraction, Prisms)', 'Wave Optics (Interference, Diffraction, Polarization)', 'Wave Motion & Superposition', 'Sound Waves & Doppler Effect', 'Standing Waves & Resonance'] },
+      { name: 'Thermodynamics & Kinetic Theory', subTopics: ['Laws of Thermodynamics', 'Carnot Engine & Entropy', 'Kinetic Theory of Gases', 'Ideal Gas & Equation of State', 'Thermal Properties & Heat Transfer'] },
+      { name: 'Modern Physics', subTopics: ['Photoelectric Effect & Photons', 'Bohr Model & Hydrogen Spectrum', 'De Broglie & Wave-Particle Duality', 'Nuclear Physics & Radioactivity', 'Special Relativity Basics', 'Quantum Mechanics Fundamentals'] }
     ],
     Chemistry: [
-      { name: 'Physical Chemistry', subTopics: ['Thermodynamics', 'Kinetics', 'Equilibrium', 'Electrochemistry', 'Surface Chemistry'] },
-      { name: 'Inorganic Chemistry', subTopics: ['Periodic Table', 'Coordination Compounds', 'd-block Elements', 'Metallurgy', 'Qualitative Analysis'] },
-      { name: 'Organic Chemistry', subTopics: ['Reaction Mechanisms', 'Stereochemistry', 'Functional Group Chemistry', 'Biomolecules', 'Polymers'] },
+      { name: 'Physical Chemistry', subTopics: ['Atomic Structure & Quantum Numbers', 'Chemical Thermodynamics & Hess\'s Law', 'Chemical Kinetics & Rate Laws', 'Chemical Equilibrium & Le Chatelier', 'Electrochemistry & Nernst Equation', 'Solutions & Colligative Properties', 'Surface Chemistry & Catalysis'] },
+      { name: 'Inorganic Chemistry', subTopics: ['Periodic Table & Periodic Trends', 'Chemical Bonding & Molecular Structure', 's-Block & p-Block Elements', 'd-Block Elements & Transition Metals', 'Coordination Compounds & CFT', 'Metallurgy & Extraction Processes', 'Qualitative Salt Analysis'] },
+      { name: 'Organic Chemistry', subTopics: ['IUPAC Nomenclature & Isomerism', 'Reaction Mechanisms (SN1, SN2, E1, E2)', 'Stereochemistry & Optical Activity', 'Hydrocarbons & Functional Groups', 'Carbonyl Compounds & Named Reactions', 'Biomolecules (Amino Acids, Carbohydrates)', 'Polymers & Practical Organic Chemistry'] }
     ],
     Mathematics: [
-      { name: 'Analysis', subTopics: ['Limits', 'Continuity', 'Differentiability', 'Integration', 'Series Convergence'] },
-      { name: 'Algebra', subTopics: ['Groups', 'Rings', 'Linear Algebra', 'Matrices', 'Polynomials'] },
-      { name: 'Combinatorics', subTopics: ['Permutations', 'Combinations', 'Pigeonhole Principle', 'Generating Functions', 'Graph Theory Basics'] },
-      { name: 'Number Theory', subTopics: ['Primes', 'Divisibility', 'Congruences', 'Diophantine Equations', 'Euler\'s Theorem'] },
+      { name: 'Calculus', subTopics: ['Limits & Continuity', 'Differentiation & Chain Rule', 'Applications of Derivatives', 'Indefinite & Definite Integration', 'Area Under Curves', 'Differential Equations', 'Series Convergence Tests'] },
+      { name: 'Algebra', subTopics: ['Quadratic Equations & Roots', 'Complex Numbers & De Moivre', 'Matrices & Determinants', 'Linear Algebra Basics', 'Sequences, Series & Summations', 'Polynomials & Factorization'] },
+      { name: 'Combinatorics & Probability', subTopics: ['Permutations & Combinations', 'Pigeonhole Principle', 'Binomial Theorem', 'Probability & Conditional Probability', 'Bayes Theorem & Distributions', 'Generating Functions Basics'] },
+      { name: 'Number Theory & Geometry', subTopics: ['Prime Numbers & Divisibility', 'Congruences & Modular Arithmetic', 'Coordinate Geometry (Lines, Conics)', 'Vectors & 3D Geometry', 'Trigonometry & Identities', 'Geometric Constructions & Proofs'] }
     ],
     Biology: [
-      { name: 'Cell & Molecular Biology', subTopics: ['Cell Structure', 'DNA & RNA', 'Protein Synthesis', 'Cell Signaling', 'Cell Cycle'] },
-      { name: 'Genetics & Evolution', subTopics: ['Mendelian Genetics', 'Population Genetics', 'Molecular Genetics', 'Evolution', 'Speciation'] },
-      { name: 'Ecology & Environment', subTopics: ['Ecosystems', 'Biodiversity', 'Conservation', 'Environmental Issues', 'Biogeography'] },
-      { name: 'Physiology', subTopics: ['Nervous System', 'Endocrine System', 'Immune System', 'Plant Physiology', 'Animal Physiology'] },
+      { name: 'Cell & Molecular Biology', subTopics: ['Cell Structure & Organelles', 'Cell Membrane & Transport', 'DNA Replication & Repair', 'Transcription & Translation', 'Cell Signaling & Signal Transduction', 'Cell Cycle, Mitosis & Meiosis'] },
+      { name: 'Genetics & Evolution', subTopics: ['Mendelian Inheritance & Pedigree', 'Linkage, Crossing Over & Mapping', 'Gene Regulation (Prokaryotic & Eukaryotic)', 'Mutations & Chromosomal Aberrations', 'Population Genetics & Hardy-Weinberg', 'Natural Selection & Speciation', 'Human Evolution'] },
+      { name: 'Ecology & Environment', subTopics: ['Ecosystem Structure & Energy Flow', 'Population Ecology & Interactions', 'Biogeochemical Cycles', 'Biodiversity & Conservation', 'Environmental Issues & Pollution', 'Climate Change & Ozone Depletion'] },
+      { name: 'Physiology (Plant & Animal)', subTopics: ['Photosynthesis & Respiration in Plants', 'Plant Water Relations & Mineral Nutrition', 'Plant Growth Regulators', 'Human Digestive & Respiratory Systems', 'Circulatory & Excretory Systems', 'Nervous System & Endocrine Control', 'Immune System & Human Health'] },
+      { name: 'Biotechnology & Applications', subTopics: ['Recombinant DNA Technology', 'PCR & DNA Fingerprinting', 'Transgenic Organisms & Bt Crops', 'Gene Therapy & Molecular Diagnostics', 'Bioethics & Biosafety Issues'] }
+    ]
+  },
+  isi: {
+    Mathematics: [
+      { name: 'Algebra & Polynomials', subTopics: ['Quadratic Equations & Discriminant', 'Polynomials & Factor Theorem', 'Complex Numbers & Argand Plane', 'Inequalities (AM-GM, Cauchy-Schwarz)', 'Sequences & Series (AP, GP, Telescoping)', 'Matrices & Determinants', 'Systems of Linear Equations'] },
+      { name: 'Number Theory', subTopics: ['Divisibility & GCD/LCM', 'Prime Numbers & Fundamental Theorem', 'Modular Arithmetic & Congruences', 'Diophantine Equations', 'Euler\'s Totient & Fermat\'s Little Theorem', 'Floor & Ceiling Functions'] },
+      { name: 'Combinatorics', subTopics: ['Permutations & Combinations', 'Pigeonhole Principle', 'Inclusion-Exclusion Principle', 'Binomial Theorem & Identities', 'Generating Functions', 'Graph Theory Basics (Paths, Cycles, Trees)'] },
+      { name: 'Geometry & Trigonometry', subTopics: ['Triangles (Congruence, Similarity, Cevians)', 'Circles (Power of a Point, Radical Axes)', 'Coordinate Geometry (Lines, Conics)', 'Trigonometric Identities & Equations', 'Geometric Transformations', 'Vectors in 2D & 3D'] },
+      { name: 'Calculus', subTopics: ['Limits & Continuity', 'Differential Calculus (Derivatives, Rolle, MVT)', 'Applications of Derivatives (Maxima, Minima, Curve Sketching)', 'Integral Calculus (Techniques, Definite Integrals)', 'Area Under Curves', 'Ordinary Differential Equations (First Order)'] },
+      { name: 'Probability & Statistics', subTopics: ['Classical Probability & Counting', 'Conditional Probability & Bayes Theorem', 'Random Variables & Expectation', 'Binomial & Poisson Distributions', 'Descriptive Statistics (Mean, Variance, SD)'] }
     ]
   }
 };
-
-// Copy IAT data for ISI (similar syllabus)
-CHAPTER_DATA.isi = CHAPTER_DATA.iat;
 
 // ─── AI QUESTION GENERATION ─────────────────────────────────────────────
 
@@ -1119,3 +1127,143 @@ export default {
   getChapterMastery,
   getAttemptDetails
 };
+
+/**
+ * POST /api/adaptive/bookmark
+ * Add a question to bookmarks
+ * Body: { questionId, questionText, options, correctAnswer, explanation, subTopic, chapterName, subject, examType, difficulty }
+ */
+export async function addBookmark(req, res) {
+  try {
+    const studentEmail = req.user?.email;
+    if (!studentEmail) {
+      return res.status(401).json({ success: false, error: 'Authentication required' });
+    }
+
+    const { questionId, questionText, options, correctAnswer, explanation, subTopic, chapterName, subject, examType, difficulty } = req.body;
+
+    if (!questionId || !questionText) {
+      return res.status(400).json({ success: false, error: 'questionId and questionText are required' });
+    }
+
+    const { data, error } = await supabase
+      .from('bookmarked_questions')
+      .upsert({
+        student_email: studentEmail,
+        question_id: questionId,
+        question_text: questionText,
+        options: typeof options === 'string' ? JSON.parse(options) : options,
+        correct_answer: correctAnswer,
+        explanation: explanation || '',
+        sub_topic: subTopic || '',
+        chapter_name: chapterName || '',
+        subject: subject || '',
+        exam_type: (examType || 'iat').toLowerCase(),
+        difficulty: difficulty || 'medium'
+      }, { onConflict: 'student_email,question_id' })
+      .select('id')
+      .single();
+
+    if (error) {
+      console.error('[Adaptive] Bookmark add error:', error.message);
+      return res.status(500).json({ success: false, error: 'Failed to add bookmark' });
+    }
+
+    return res.json({ success: true, bookmarkId: data.id });
+  } catch (err) {
+    console.error('[Adaptive] addBookmark error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to add bookmark' });
+  }
+}
+
+/**
+ * DELETE /api/adaptive/bookmark/:questionId
+ * Remove a question from bookmarks
+ */
+export async function removeBookmark(req, res) {
+  try {
+    const studentEmail = req.user?.email;
+    if (!studentEmail) {
+      return res.status(401).json({ success: false, error: 'Authentication required' });
+    }
+
+    const { questionId } = req.params;
+    if (!questionId) {
+      return res.status(400).json({ success: false, error: 'questionId is required' });
+    }
+
+    const { error } = await supabase
+      .from('bookmarked_questions')
+      .delete()
+      .eq('student_email', studentEmail)
+      .eq('question_id', questionId);
+
+    if (error) {
+      console.error('[Adaptive] Bookmark remove error:', error.message);
+      return res.status(500).json({ success: false, error: 'Failed to remove bookmark' });
+    }
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('[Adaptive] removeBookmark error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to remove bookmark' });
+  }
+}
+
+/**
+ * GET /api/adaptive/bookmarks
+ * Get all bookmarked questions for current student
+ * Query params: subject, chapterName, examType (all optional filters)
+ */
+export async function getBookmarks(req, res) {
+  try {
+    const studentEmail = req.user?.email;
+    if (!studentEmail) {
+      return res.status(401).json({ success: false, error: 'Authentication required' });
+    }
+
+    let query = supabase
+      .from('bookmarked_questions')
+      .select('*')
+      .eq('student_email', studentEmail)
+      .order('created_at', { ascending: false });
+
+    if (req.query.subject) {
+      query = query.eq('subject', req.query.subject);
+    }
+    if (req.query.chapterName) {
+      query = query.eq('chapter_name', req.query.chapterName);
+    }
+    if (req.query.examType) {
+      query = query.eq('exam_type', req.query.examType.toLowerCase());
+    }
+
+    const { data, error } = await query.limit(200);
+
+    if (error) {
+      console.error('[Adaptive] Bookmarks fetch error:', error.message);
+      return res.status(500).json({ success: false, error: 'Failed to fetch bookmarks' });
+    }
+
+    return res.json({
+      success: true,
+      bookmarks: (data || []).map(b => ({
+        id: b.id,
+        questionId: b.question_id,
+        questionText: b.question_text,
+        options: b.options,
+        correctAnswer: b.correct_answer,
+        explanation: b.explanation,
+        subTopic: b.sub_topic,
+        chapterName: b.chapter_name,
+        subject: b.subject,
+        examType: b.exam_type,
+        difficulty: b.difficulty,
+        createdAt: b.created_at
+      }))
+    });
+  } catch (err) {
+    console.error('[Adaptive] getBookmarks error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to fetch bookmarks' });
+  }
+}

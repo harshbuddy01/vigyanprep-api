@@ -11,7 +11,10 @@ import {
   generateTest,
   submitTest,
   getChapterMastery,
-  getAttemptDetails
+  getAttemptDetails,
+  addBookmark,
+  removeBookmark,
+  getBookmarks
 } from '../controllers/adaptiveController.js';
 
 const router = Router();
@@ -35,5 +38,10 @@ router.get('/mastery', verifyAuth, getChapterMastery);
 
 // Get full attempt details (for diagnosis page)
 router.get('/attempt/:attemptId', verifyAuth, getAttemptDetails);
+
+// Bookmark Routes
+router.post('/bookmark', verifyAuth, addBookmark);
+router.delete('/bookmark/:questionId', verifyAuth, removeBookmark);
+router.get('/bookmarks', verifyAuth, getBookmarks);
 
 export default router;
