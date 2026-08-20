@@ -429,6 +429,7 @@ export async function generateTest(req, res) {
       examType = 'iat',
       subject,
       chapterName,
+      selectedSubTopics,
       questionCount = 10,
       durationMinutes = 15,
       difficulty = 'medium'
@@ -455,28 +456,38 @@ export async function generateTest(req, res) {
       });
     }
 
-    const count = Math.min(Math.max(parseInt(questionCount) || 10, 5), 30);
-    const durationSec = Math.min(Math.max(parseInt(durationMinutes) || 15, 5), 120) * 60;
+    const activeSubTopics = (selectedSubTopics && Array.isArray(selectedSubTopics) && selectedSubTopics.length > 0)
+      ? selectedSubTopics
+      : chapterDef.subTopics;
+
+    const count = Math.min(Math.max(parseInt(questionCount) || 10, 3), 30);
+    const durationSec = Math.min(Math.max(parseInt(durationMinutes) || 15, 3), 120) * 60;
 
     // ─── STEP 1: Check for cached questions in database ───
     let cachedQuestions = [];
     try {
-      const { data: cached } = await supabase
+      let cacheQuery = supabase
         .from('adaptive_question_bank')
         .select('*')
         .eq('exam_type', examType.toLowerCase())
         .eq('subject', subject)
         .eq('chapter_name', chapterName)
-        .eq('is_flagged', false)
+        .eq('is_flagged', false);
+
+      if (selectedSubTopics && Array.isArray(selectedSubTopics) && selectedSubTopics.length > 0) {
+        cacheQuery = cacheQuery.in('sub_topic', selectedSubTopics);
+      }
+
+      const { data: cached } = await cacheQuery
         .order('times_served', { ascending: true })
         .limit(count);
 
       if (cached && cached.length >= count) {
         cachedQuestions = cached.slice(0, count);
-        console.log(`[Adaptive] ✅ Serving ${cachedQuestions.length} cached questions for ${chapterName}`);
+        console.log(`[Adaptive] ✅ Serving ${cachedQuestions.length} cached questions for ${chapterName} (${activeSubTopics.join(', ')})`);
       }
     } catch (cacheErr) {
-      console.warn('[Adaptive] Cache lookup failed (table may not exist yet):', cacheErr.message);
+      console.warn('[Adaptive] Cache lookup failed:', cacheErr.message);
     }
 
     // ─── STEP 2: Check student's weak sub-topics for remediation targeting ───
@@ -526,7 +537,7 @@ export async function generateTest(req, res) {
 
       const result = await generateQuestionsWithAI(
         examType, subject, chapterName,
-        chapterDef.subTopics, needed, difficulty, weakSubTopics
+        activeSubTopics, needed, difficulty, weakSubTopics
       );
 
       aiModel = result.aiModel;
