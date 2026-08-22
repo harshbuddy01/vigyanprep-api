@@ -50,6 +50,7 @@ import examAccessRoutes from './routes/examAccessRoutes.js';
 import studentSubscriptionRoutes from './routes/studentSubscriptionRoutes.js';
 import studentAnalyticsRoutes from './routes/studentAnalyticsRoutes.js';
 import adaptiveRoutes from './routes/adaptiveRoutes.js'; // 🧠 Adaptive Chapter Revision Engine
+import diagramRoutes from './routes/diagramRoutes.js'; // 📐 LaTeX/TikZ Compiler & Image Uploader
 import { startReminderScheduler } from './services/reminderScheduler.js';
 
 // Validate environment
@@ -144,7 +145,13 @@ app.use('/api/exam/lifecycle', examLifecycleRoutes); // Student-accessible lifec
 app.use('/api/student/analytics', studentAnalyticsRoutes); // Student performance analytics
 
 
+// Static Uploads Serving
+const uploadsDir = path.join(__dirname, '../uploads');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+app.use('/uploads', express.static(uploadsDir));
+
 app.use('/api/admin/dashboard', adminDashboardRoutes);
+app.use('/api/admin/diagrams', diagramRoutes);
 app.use('/api/admin/test-builder', adminTestRoutes);
 app.use('/api/admin/tests', adminTestPricingRoutes);
 app.use('/api/admin/live-preview', livePreviewRoutes);
