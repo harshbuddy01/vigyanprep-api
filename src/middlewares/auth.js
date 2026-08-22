@@ -5,7 +5,7 @@ import jwt from 'jsonwebtoken';
 import { supabase } from '../db/supabase.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'vigyanprep_secret_key_2026';
-const JWT_EXPIRES_IN = '7d';
+const JWT_EXPIRES_IN = '30d'; // 30 Days Long-Lived Student Session
 
 /**
  * Generate Auth JWT Token
