@@ -120,7 +120,7 @@ export const TIKZ_TEMPLATES = {
   \\draw[->, thick] (0,-1) -- (0,3.5) node[above] {$y$};
   \\node[below left] at (0,0) {$O$};
 
-  % Parabola y = x^2 - 1
+  % Parabola
   \\draw[domain=-2:2, smooth, variable=\\x, ultra thick, blue!80] plot ({\\x}, {\\x*\\x - 0.5});
   \\node[above right, blue] at (1.8, 3.0) {$y = f(x)$};
 
@@ -132,29 +132,74 @@ export const TIKZ_TEMPLATES = {
 };
 
 /**
- * Clean & wrap raw TikZ snippet in a complete standalone LaTeX document
+ * Smart LaTeX parser: separates preambles, \usepackage, \usetikzlibrary, and wraps cleanly
  */
 function wrapTikzInDocument(rawCode) {
   const trimmed = rawCode.trim();
+
+  // If full document already provided
   if (trimmed.includes('\\documentclass')) {
     return trimmed;
   }
 
-  return `\\documentclass[tikz,border=6pt]{standalone}
-\\usepackage{tikz}
+  // Separate preamble commands from body commands
+  const lines = trimmed.split('\n');
+  const userPreamble = [];
+  const bodyLines = [];
+
+  let insideDocument = false;
+
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+    if (trimmedLine.startsWith('\\begin{document}')) {
+      insideDocument = true;
+      continue;
+    }
+    if (trimmedLine.startsWith('\\end{document}')) {
+      insideDocument = false;
+      continue;
+    }
+
+    if (!insideDocument && (
+      trimmedLine.startsWith('\\usepackage') ||
+      trimmedLine.startsWith('\\usetikzlibrary') ||
+      trimmedLine.startsWith('\\tikzset') ||
+      trimmedLine.startsWith('\\newcommand') ||
+      trimmedLine.startsWith('\\renewcommand') ||
+      trimmedLine.startsWith('\\def') ||
+      trimmedLine.startsWith('\\pgfplotsset')
+    )) {
+      userPreamble.push(trimmedLine);
+    } else {
+      bodyLines.push(line);
+    }
+  }
+
+  const customPreamble = userPreamble.join('\n');
+  const cleanBody = bodyLines.join('\n').trim();
+
+  return `\\documentclass[tikz,border=6pt,xcolor={dvipsnames,svgnames,x11names}]{standalone}
 \\usepackage{amsmath}
 \\usepackage{amssymb}
-\\usetikzlibrary{arrows.meta,patterns,calc,decorations.pathmorphing,shapes}
+\\usepackage{amsfonts}
+\\usepackage{tikz}
+\\usepackage{xcolor}
+\\definecolor{amber}{RGB}{245,158,11}
+\\definecolor{emerald}{RGB}{16,185,129}
+\\definecolor{indigo}{RGB}{99,102,241}
+\\definecolor{crimson}{RGB}{220,20,60}
+\\definecolor{purple}{RGB}{168,85,247}
+\\definecolor{rose}{RGB}{244,63,94}
+\\definecolor{teal}{RGB}{20,184,166}
+\\definecolor{sky}{RGB}{14,165,233}
+\\usetikzlibrary{arrows.meta,patterns,patterns.meta,calc,decorations.pathmorphing,decorations.markings,shapes,shapes.geometric,positioning,angles,quotes,intersections,3d}
+${customPreamble}
 
 \\begin{document}
-${trimmed}
+${cleanBody}
 \\end{document}`;
 }
 
-/**
- * POST /api/admin/diagrams/render-tikz
- * Compiles raw TikZ code into a high-resolution 300 DPI transparent PNG
- */
 export async function renderTikz(req, res) {
   try {
     const { tikzCode, dpi = 300 } = req.body;
@@ -191,9 +236,9 @@ export async function renderTikz(req, res) {
       fs.writeFileSync(texPath, fullDocument, 'utf8');
 
       // 1. Run pdflatex
-      const pdflatexBin = fs.existsSync('/Library/TeX/texbin/pdflatex')
-        ? '/Library/TeX/texbin/pdflatex'
-        : 'pdflatex';
+      const pdflatexBin = fs.existsSync('/usr/bin/pdflatex')
+        ? '/usr/bin/pdflatex'
+        : (fs.existsSync('/Library/TeX/texbin/pdflatex') ? '/Library/TeX/texbin/pdflatex' : 'pdflatex');
 
       try {
         await execFileAsync(pdflatexBin, [
@@ -208,12 +253,17 @@ export async function renderTikz(req, res) {
         let errorSnippet = 'LaTeX compilation error';
         if (fs.existsSync(logPath)) {
           const logContent = fs.readFileSync(logPath, 'utf8');
-          const errorLines = logContent
-            .split('\n')
-            .filter(line => line.startsWith('!') || line.includes('Error:') || line.includes('undefined control sequence'))
-            .slice(0, 4)
-            .join(' | ');
-          if (errorLines) errorSnippet = errorLines;
+          const lines = logContent.split('\n');
+          const importantErrors = [];
+          for (let i = 0; i < lines.length; i++) {
+            if (lines[i].startsWith('!') || lines[i].includes('Error:')) {
+              importantErrors.push(lines[i]);
+              if (lines[i + 1] && lines[i + 1].trim()) importantErrors.push(lines[i + 1].trim());
+            }
+          }
+          if (importantErrors.length > 0) {
+            errorSnippet = importantErrors.slice(0, 3).join(' \n ');
+          }
         }
         return res.status(422).json({
           success: false,
@@ -227,7 +277,10 @@ export async function renderTikz(req, res) {
       }
 
       // 2. Convert PDF to 300 DPI Transparent PNG using Ghostscript or sips
-      const gsBin = fs.existsSync('/usr/local/bin/gs') ? '/usr/local/bin/gs' : 'gs';
+      const gsBin = fs.existsSync('/usr/bin/gs')
+        ? '/usr/bin/gs'
+        : (fs.existsSync('/usr/local/bin/gs') ? '/usr/local/bin/gs' : 'gs');
+
       try {
         await execFileAsync(gsBin, [
           '-dSAFER',
@@ -239,8 +292,10 @@ export async function renderTikz(req, res) {
           pdfPath
         ], { timeout: 10000 });
       } catch {
-        // Fallback to macOS sips
-        await execFileAsync('/usr/bin/sips', ['-s', 'format', 'png', pdfPath, '--out', pngPath], { timeout: 10000 });
+        // Fallback to macOS sips if available
+        if (fs.existsSync('/usr/bin/sips')) {
+          await execFileAsync('/usr/bin/sips', ['-s', 'format', 'png', pdfPath, '--out', pngPath], { timeout: 10000 });
+        }
       }
 
       if (!fs.existsSync(pngPath)) {
@@ -285,7 +340,7 @@ export async function uploadDiagram(req, res) {
       return res.status(400).json({ success: false, error: 'base64Data is required' });
     }
 
-    const matches = base64Data.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+    const matches = base64Data.match(/^data:([A-Za-z-+\\/]+);base64,(.+)$/);
     const buffer = matches
       ? Buffer.from(matches[2], 'base64')
       : Buffer.from(base64Data, 'base64');
