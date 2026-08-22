@@ -132,35 +132,45 @@ export const TIKZ_TEMPLATES = {
 };
 
 /**
- * Smart LaTeX parser: separates preambles, \usepackage, \usetikzlibrary, and wraps cleanly
+ * Smart LaTeX parser: auto-detects packages, missing begin/end tikzpicture, and repairs syntax
  */
 function wrapTikzInDocument(rawCode) {
   const trimmed = rawCode.trim();
 
-  // If full document already provided
+  // If user provided a complete document with \documentclass
   if (trimmed.includes('\\documentclass')) {
-    return trimmed;
+    let doc = trimmed;
+    if (!doc.includes('{amsmath}')) {
+      const lines = doc.split('\n');
+      const newLines = [];
+      for (const line of lines) {
+        newLines.push(line);
+        if (line.trim().startsWith('\\documentclass')) {
+          newLines.push('\\usepackage{amsmath,amssymb,amsfonts}');
+          newLines.push('\\usepackage{tikz}');
+          newLines.push('\\usepackage[dvipsnames,svgnames,x11names]{xcolor}');
+          newLines.push('\\definecolor{amber}{RGB}{245,158,11}');
+          newLines.push('\\definecolor{emerald}{RGB}{16,185,129}');
+          newLines.push('\\usetikzlibrary{arrows.meta,patterns,patterns.meta,calc,decorations.pathmorphing,shapes}');
+        }
+      }
+      return newLines.join('\n');
+    }
+    return doc;
   }
 
-  // Separate preamble commands from body commands
+  // Separate preamble commands from body commands and ignore stray \begin{document} / \end{document}
   const lines = trimmed.split('\n');
   const userPreamble = [];
   const bodyLines = [];
 
-  let insideDocument = false;
-
   for (const line of lines) {
     const trimmedLine = line.trim();
-    if (trimmedLine.startsWith('\\begin{document}')) {
-      insideDocument = true;
-      continue;
-    }
-    if (trimmedLine.startsWith('\\end{document}')) {
-      insideDocument = false;
+    if (trimmedLine.startsWith('\\begin{document}') || trimmedLine.startsWith('\\end{document}')) {
       continue;
     }
 
-    if (!insideDocument && (
+    if (
       trimmedLine.startsWith('\\usepackage') ||
       trimmedLine.startsWith('\\usetikzlibrary') ||
       trimmedLine.startsWith('\\tikzset') ||
@@ -168,7 +178,7 @@ function wrapTikzInDocument(rawCode) {
       trimmedLine.startsWith('\\renewcommand') ||
       trimmedLine.startsWith('\\def') ||
       trimmedLine.startsWith('\\pgfplotsset')
-    )) {
+    ) {
       userPreamble.push(trimmedLine);
     } else {
       bodyLines.push(line);
@@ -176,7 +186,22 @@ function wrapTikzInDocument(rawCode) {
   }
 
   const customPreamble = userPreamble.join('\n');
-  const cleanBody = bodyLines.join('\n').trim();
+  let cleanBody = bodyLines.join('\n').trim();
+
+  // Strip stray \begin{document} / \end{document}
+  cleanBody = cleanBody.replace(/\\begin\{document\}|\\end\{document\}/g, '').trim();
+
+  // Auto-detect missing \begin{tikzpicture} or lone \end{tikzpicture}
+  const hasBeginTikz = cleanBody.includes('\\begin{tikzpicture}');
+  const hasEndTikz = cleanBody.includes('\\end{tikzpicture}');
+  const hasTikzCmds = /\\(draw|node|path|fill|filldraw|shade|clip|coordinate|foreach)\b/.test(cleanBody);
+
+  if (hasTikzCmds && !hasBeginTikz) {
+    cleanBody = cleanBody.replace(/\\end\{tikzpicture\}/g, '').trim();
+    cleanBody = `\\begin{tikzpicture}\n${cleanBody}\n\\end{tikzpicture}`;
+  } else if (hasBeginTikz && !hasEndTikz) {
+    cleanBody = `${cleanBody}\n\\end{tikzpicture}`;
+  }
 
   return `\\documentclass[tikz,border=6pt,xcolor={dvipsnames,svgnames,x11names}]{standalone}
 \\usepackage{amsmath}
@@ -200,6 +225,10 @@ ${cleanBody}
 \\end{document}`;
 }
 
+/**
+ * POST /api/admin/diagrams/render-tikz
+ * Compiles raw TikZ code into a high-resolution 300 DPI transparent PNG
+ */
 export async function renderTikz(req, res) {
   try {
     const { tikzCode, dpi = 300 } = req.body;
