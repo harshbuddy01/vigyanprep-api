@@ -489,31 +489,62 @@ export const approveAndPublishPyq = async (req, res) => {
     const targetWindowStart = windowStart || window_start || null;
     const targetWindowEnd = windowEnd || window_end || null;
     const parsedYear = parseInt(year) || (title.match(/\d{4}/) ? parseInt(title.match(/\d{4}/)[0]) : new Date().getFullYear());
+    const existingTestId = req.body.testId || req.body.id || null;
 
-    // 1. Insert into 'tests' table with chosen content_type ('test_series' or 'pyq')
-    const { data: test, error: testErr } = await supabase
-      .from('tests')
-      .insert({
-        title,
-        exam_type: examType || 'IAT',
-        content_type: targetContentType,
-        pyq_year: targetContentType === 'pyq' ? parsedYear : null,
-        window_start: targetContentType === 'test_series' ? targetWindowStart : null,
-        window_end: targetContentType === 'test_series' ? targetWindowEnd : null,
-        description: description || `${title} — ${targetContentType === 'test_series' ? 'Live Paid Test Series Mock' : 'Official PYQ Paper'}`,
-        duration_minutes: durationMinutes || 180,
-        is_active: true,
-        is_published: false,
-        status: 'draft'
-      })
-      .select()
-      .single();
+    let testId = existingTestId;
 
-    if (testErr || !test) {
-      throw testErr || new Error('Failed to create test entry');
+    if (existingTestId) {
+      const { data: updatedTest, error: updateErr } = await supabase
+        .from('tests')
+        .update({
+          title,
+          exam_type: examType || 'IAT',
+          content_type: targetContentType,
+          pyq_year: targetContentType === 'pyq' ? parsedYear : null,
+          window_start: targetContentType === 'test_series' ? targetWindowStart : null,
+          window_end: targetContentType === 'test_series' ? targetWindowEnd : null,
+          description: description || `${title} — ${targetContentType === 'test_series' ? 'Live Paid Test Series Mock' : 'Official PYQ Paper'}`,
+          duration_minutes: durationMinutes || 180,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existingTestId)
+        .select()
+        .maybeSingle();
+
+      if (!updateErr && updatedTest) {
+        testId = updatedTest.id;
+        // Clean out existing questions for this test to replace with the updated list
+        await supabase.from('questions').delete().eq('test_id', testId);
+      } else {
+        testId = null;
+      }
     }
 
-    const testId = test.id;
+    if (!testId) {
+      // 1. Insert into 'tests' table with chosen content_type ('test_series' or 'pyq')
+      const { data: test, error: testErr } = await supabase
+        .from('tests')
+        .insert({
+          title,
+          exam_type: examType || 'IAT',
+          content_type: targetContentType,
+          pyq_year: targetContentType === 'pyq' ? parsedYear : null,
+          window_start: targetContentType === 'test_series' ? targetWindowStart : null,
+          window_end: targetContentType === 'test_series' ? targetWindowEnd : null,
+          description: description || `${title} — ${targetContentType === 'test_series' ? 'Live Paid Test Series Mock' : 'Official PYQ Paper'}`,
+          duration_minutes: durationMinutes || 180,
+          is_active: true,
+          is_published: false,
+          status: 'draft'
+        })
+        .select()
+        .single();
+
+      if (testErr || !test) {
+        throw testErr || new Error('Failed to create test entry');
+      }
+      testId = test.id;
+    }
 
     // 2. Insert Questions
     const sanitizedQuestions = questions.map((q, idx) => ({
