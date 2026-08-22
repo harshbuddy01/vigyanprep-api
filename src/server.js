@@ -120,11 +120,20 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
 // Ensure static uploads directory exists
-const uploadsDir = path.join(__dirname, '../public/uploads/diagrams');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+const publicUploads = path.join(__dirname, '../public/uploads/diagrams');
+if (!fs.existsSync(publicUploads)) {
+  fs.mkdirSync(publicUploads, { recursive: true });
 }
+const rootUploads = path.join(__dirname, '../uploads/diagrams');
+if (!fs.existsSync(rootUploads)) {
+  fs.mkdirSync(rootUploads, { recursive: true });
+}
+
 app.use('/uploads', express.static(path.join(__dirname, '../public/uploads'), {
+  maxAge: '1y',
+  immutable: true
+}));
+app.use('/uploads', express.static(path.join(__dirname, '../uploads'), {
   maxAge: '1y',
   immutable: true
 }));
@@ -143,12 +152,6 @@ app.use('/api/admin/blueprints', blueprintRoutes);
 app.use('/api/admin/lifecycle', examLifecycleRoutes);
 app.use('/api/exam/lifecycle', examLifecycleRoutes); // Student-accessible lifecycle endpoints
 app.use('/api/student/analytics', studentAnalyticsRoutes); // Student performance analytics
-
-
-// Static Uploads Serving
-const uploadsDir = path.join(__dirname, '../uploads');
-if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-app.use('/uploads', express.static(uploadsDir));
 
 app.use('/api/admin/dashboard', adminDashboardRoutes);
 app.use('/api/admin/diagrams', diagramRoutes);
