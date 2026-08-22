@@ -316,7 +316,9 @@ export async function renderTikz(req, res) {
           '-dBATCH',
           '-dNOPAUSE',
           `-r${dpi}`,
-          '-sDEVICE=pngalpha',
+          '-sDEVICE=png16m',
+          '-dTextAlphaBits=4',
+          '-dGraphicsAlphaBits=4',
           `-sOutputFile=${pngPath}`,
           pdfPath
         ], { timeout: 10000 });
