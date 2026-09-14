@@ -95,6 +95,178 @@ export const updateResultStages = async (req, res) => {
 };
 
 /**
+ * Core Engine: Recalculate Scores and Ranks for a Test
+ * Can be called internally (e.g., after challenge acceptance) or via HTTP endpoint.
+ * Supports:
+ * - Single correct answers ('A', 'B', 'C', 'D')
+ * - Multiple valid answers ('A,B', 'A or B', 'A|C')
+ * - BONUS / DROPPED questions (+marks to all attempted students, 0 negative)
+ */
+export async function recalculateTestScoresAndRanks(testId) {
+  if (!testId) throw new Error('testId is required');
+
+  // 1. Fetch all SUBMITTED attempts for this test
+  const { data: rawAttempts, error: attErr } = await supabase
+    .from('attempts')
+    .select('*')
+    .eq('test_id', testId)
+    .eq('status', 'submitted');
+
+  if (attErr) throw attErr;
+
+  // Filter in JS to avoid SQL schema crashes
+  const attempts = (rawAttempts || []).filter(a => a.is_absent !== true);
+
+  const { data: questions, error: qErr } = await supabase
+    .from('questions')
+    .select('id, section, correct_answer, marks_positive, marks_negative')
+    .eq('test_id', testId);
+
+  if (qErr) throw qErr;
+
+  const questionMap = new Map();
+  (questions || []).forEach(q => questionMap.set(q.id, q));
+
+  const scoredAttempts = [];
+
+  for (const att of attempts) {
+    let answersMap = {};
+
+    // 1. Check attempt_answers table
+    const { data: ansRows } = await supabase
+      .from('attempt_answers')
+      .select('*')
+      .eq('attempt_id', att.id);
+
+    if (ansRows && ansRows.length > 0) {
+      ansRows.forEach(a => {
+        if (a.question_id && a.answer !== undefined) {
+          answersMap[a.question_id] = String(a.answer).trim();
+        }
+      });
+    }
+
+    // 2. Check responses table if attempt_answers was empty
+    if (Object.keys(answersMap).length === 0) {
+      const { data: respRows } = await supabase
+        .from('responses')
+        .select('*')
+        .eq('attempt_id', att.id);
+
+      if (respRows && respRows.length > 0) {
+        respRows.forEach(r => {
+          if (r.question_id && r.selected_option !== undefined) {
+            answersMap[r.question_id] = String(r.selected_option).trim();
+          }
+        });
+      }
+    }
+
+    // 3. Check JSON answers on attempt row
+    if (Object.keys(answersMap).length === 0 && att.answers && typeof att.answers === 'object') {
+      answersMap = att.answers;
+    }
+
+    let totalRawScore = 0;
+    const sectionScores = {};
+
+    for (const [qId, q] of questionMap.entries()) {
+      const sec = q.section || 'General';
+      if (!sectionScores[sec]) sectionScores[sec] = 0;
+
+      const pos = Number(q.marks_positive) || 4;
+      const neg = Math.abs(Number(q.marks_negative) || 1);
+      const correctRaw = String(q.correct_answer || '').trim().toUpperCase();
+
+      // Check if question is officially designated BONUS or DROPPED
+      const isBonus = correctRaw === 'BONUS' || correctRaw === 'DROPPED' || correctRaw === 'ALL';
+
+      if (isBonus) {
+        // Official NTA / IISER rule: full positive marks to all candidates who appeared
+        totalRawScore += pos;
+        sectionScores[sec] += pos;
+        continue;
+      }
+
+      const userAns = answersMap[qId];
+      if (userAns !== undefined && userAns !== null && String(userAns).trim() !== '') {
+        const userStr = String(userAns).trim().toUpperCase();
+        // Support multi-option keys (e.g. "A,B" or "A/B" or "A or B" or "A|B")
+        const allowedOptions = correctRaw
+          .replace(/\bOR\b/gi, ',')
+          .split(/[,/|]+/)
+          .map(s => s.trim())
+          .filter(Boolean);
+
+        const isCorrect = allowedOptions.length > 1
+          ? allowedOptions.includes(userStr)
+          : userStr === correctRaw;
+
+        if (isCorrect) {
+          totalRawScore += pos;
+          sectionScores[sec] += pos;
+        } else {
+          totalRawScore -= neg;
+          sectionScores[sec] -= neg;
+        }
+      }
+    }
+
+    scoredAttempts.push({
+      attempt_id: att.id,
+      test_id: att.test_id,
+      student_id: att.student_id,
+      raw_score: totalRawScore,
+      section_scores: sectionScores
+    });
+  }
+
+  // Sort descending by raw score
+  scoredAttempts.sort((a, b) => b.raw_score - a.raw_score);
+
+  const liveDenominator = scoredAttempts.length;
+
+  for (let i = 0; i < liveDenominator; i++) {
+    const item = scoredAttempts[i];
+    const rankOverall = i + 1;
+    const percentile = liveDenominator > 1
+      ? Number(((liveDenominator - rankOverall) / (liveDenominator - 1) * 100).toFixed(2))
+      : 100;
+
+    const resultPayload = {
+      attempt_id: item.attempt_id,
+      test_id: item.test_id,
+      student_id: item.student_id,
+      raw_score: item.raw_score,
+      section_scores: item.section_scores,
+      percentage: Number(((item.raw_score / Math.max(1, questionMap.size * 4)) * 100).toFixed(2)),
+      rank_overall: rankOverall,
+      percentile: percentile
+    };
+
+    try {
+      const { error: upsertErr } = await supabase
+        .from('results')
+        .upsert(resultPayload, { onConflict: 'attempt_id' });
+
+      if (upsertErr) {
+        // Fallback: Delete old result and insert
+        await supabase.from('results').delete().eq('attempt_id', item.attempt_id);
+        await supabase.from('results').insert(resultPayload);
+      }
+    } catch (e) {
+      console.error('Result upsert fallback:', e);
+    }
+  }
+
+  return {
+    success: true,
+    count: liveDenominator,
+    liveDenominator
+  };
+}
+
+/**
  * Admin / System: Calculate Scores and Ranks (Two-Tier & Absent Exclusion)
  */
 export const calculateTestRanks = async (req, res) => {
@@ -102,142 +274,13 @@ export const calculateTestRanks = async (req, res) => {
     const { testId } = req.params;
     if (!testId) return res.status(400).json({ error: 'testId is required' });
 
-    // 1. Fetch all SUBMITTED attempts for this test
-    const { data: rawAttempts, error: attErr } = await supabase
-      .from('attempts')
-      .select('*')
-      .eq('test_id', testId)
-      .eq('status', 'submitted');
-
-    if (attErr) throw attErr;
-
-    // Filter in JS to avoid SQL schema crashes
-    const attempts = (rawAttempts || []).filter(a => a.is_absent !== true);
-
-    const { data: questions, error: qErr } = await supabase
-      .from('questions')
-      .select('id, section, correct_answer, marks_positive, marks_negative')
-      .eq('test_id', testId);
-
-    if (qErr) throw qErr;
-
-    const questionMap = new Map();
-    (questions || []).forEach(q => questionMap.set(q.id, q));
-
-    const scoredAttempts = [];
-
-    for (const att of attempts) {
-      let answersMap = {};
-
-      // 1. Check attempt_answers table
-      const { data: ansRows } = await supabase
-        .from('attempt_answers')
-        .select('*')
-        .eq('attempt_id', att.id);
-
-      if (ansRows && ansRows.length > 0) {
-        ansRows.forEach(a => {
-          if (a.question_id && a.answer !== undefined) {
-            answersMap[a.question_id] = String(a.answer).trim();
-          }
-        });
-      }
-
-      // 2. Check responses table if attempt_answers was empty
-      if (Object.keys(answersMap).length === 0) {
-        const { data: respRows } = await supabase
-          .from('responses')
-          .select('*')
-          .eq('attempt_id', att.id);
-
-        if (respRows && respRows.length > 0) {
-          respRows.forEach(r => {
-            if (r.question_id && r.selected_option !== undefined) {
-              answersMap[r.question_id] = String(r.selected_option).trim();
-            }
-          });
-        }
-      }
-
-      // 3. Check JSON answers on attempt row
-      if (Object.keys(answersMap).length === 0 && att.answers && typeof att.answers === 'object') {
-        answersMap = att.answers;
-      }
-
-      let totalRawScore = 0;
-      const sectionScores = {};
-
-      for (const [qId, q] of questionMap.entries()) {
-        const sec = q.section || 'General';
-        if (!sectionScores[sec]) sectionScores[sec] = 0;
-
-        const userAns = answersMap[qId];
-        if (userAns !== undefined && userAns !== null && String(userAns).trim() !== '') {
-          const isCorrect = String(userAns).trim().toUpperCase() === String(q.correct_answer || '').trim().toUpperCase();
-          if (isCorrect) {
-            const pos = Number(q.marks_positive) || 4;
-            totalRawScore += pos;
-            sectionScores[sec] += pos;
-          } else {
-            const neg = Math.abs(Number(q.marks_negative) || 1);
-            totalRawScore -= neg;
-            sectionScores[sec] -= neg;
-          }
-        }
-      }
-
-      scoredAttempts.push({
-        attempt_id: att.id,
-        test_id: att.test_id,
-        student_id: att.student_id,
-        raw_score: totalRawScore,
-        section_scores: sectionScores
-      });
-    }
-
-    // Sort descending by raw score
-    scoredAttempts.sort((a, b) => b.raw_score - a.raw_score);
-
-    const liveDenominator = scoredAttempts.length;
-
-    for (let i = 0; i < liveDenominator; i++) {
-      const item = scoredAttempts[i];
-      const rankOverall = i + 1;
-      const percentile = liveDenominator > 1
-        ? Number(((liveDenominator - rankOverall) / (liveDenominator - 1) * 100).toFixed(2))
-        : 100;
-
-      const resultPayload = {
-        attempt_id: item.attempt_id,
-        test_id: item.test_id,
-        student_id: item.student_id,
-        raw_score: item.raw_score,
-        section_scores: item.section_scores,
-        percentage: Number(((item.raw_score / Math.max(1, questionMap.size * 4)) * 100).toFixed(2)),
-        rank_overall: rankOverall,
-        percentile: percentile
-      };
-
-      try {
-        const { error: upsertErr } = await supabase
-          .from('results')
-          .upsert(resultPayload, { onConflict: 'attempt_id' });
-
-        if (upsertErr) {
-          // Fallback: Delete old result and insert
-          await supabase.from('results').delete().eq('attempt_id', item.attempt_id);
-          await supabase.from('results').insert(resultPayload);
-        }
-      } catch (e) {
-        console.error('Result upsert fallback:', e);
-      }
-    }
+    const result = await recalculateTestScoresAndRanks(testId);
 
     return res.status(200).json({
       success: true,
-      message: `Calculated ranks for ${liveDenominator} students.`,
-      count: liveDenominator,
-      liveDenominator
+      message: `Calculated ranks for ${result.count} students.`,
+      count: result.count,
+      liveDenominator: result.liveDenominator
     });
   } catch (err) {
     console.error('calculateTestRanks error:', err);
