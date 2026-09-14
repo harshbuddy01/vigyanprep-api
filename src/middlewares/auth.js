@@ -97,22 +97,8 @@ export async function verifyAuth(req, res, next) {
       }
     }
 
-    // 3. Fallback: Parse valid JWT token payload
-    if (!decoded) {
-      try {
-        const rawDecoded = jwt.decode(token);
-        if (rawDecoded && (rawDecoded.email || rawDecoded.sub || rawDecoded.id)) {
-          if (rawDecoded.exp && rawDecoded.exp * 1000 < Date.now()) {
-            return res.status(401).json({
-              success: false,
-              error: 'Session expired. Please log in again.',
-              code: 'TOKEN_EXPIRED'
-            });
-          }
-          decoded = rawDecoded;
-        }
-      } catch {}
-    }
+    // 3. REMOVED: Raw jwt.decode() fallback was a security vulnerability (VP-V001).
+    //    An unverified token must NEVER be accepted — it allows forged impersonation.
 
     if (!decoded) {
       return res.status(401).json({

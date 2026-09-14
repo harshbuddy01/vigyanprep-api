@@ -156,15 +156,24 @@ export async function verifyPayment(req, res) {
     let durationDays = 30;
     let bundleIncludes = null;
     if (planId) {
-      const { data: plan } = await supabase.from('plans').select('*').eq('id', planId).single();
-      if (plan) {
-        planName = plan.name || '';
-        examType = plan.exam_type || '';
-        durationDays = plan.duration_days || 30;
-        // For bundle plans, store the array of included exam types
-        if (plan.exam_type === 'BUNDLE' && Array.isArray(plan.bundle_includes) && plan.bundle_includes.length > 0) {
-          bundleIncludes = plan.bundle_includes;
-        }
+      const { data: plan, error: planErr } = await supabase.from('plans').select('*').eq('id', planId).single();
+      if (planErr || !plan) {
+        // VP-V007: Fail loudly instead of silently defaulting to 30-day subscription
+        console.error('❌ Plan not found for planId:', planId, planErr?.message);
+        return res.status(400).json({ success: false, error: `Plan not found: ${planId}. Payment recorded but subscription not created. Contact support.` });
+      }
+      planName = plan.name || '';
+      examType = plan.exam_type || '';
+      if (!plan.duration_days || plan.duration_days < 1) {
+        console.error('❌ Plan has invalid duration_days:', plan.duration_days, 'for plan:', planId);
+        // Default to 365 days rather than 30 — safer for students
+        durationDays = 365;
+      } else {
+        durationDays = plan.duration_days;
+      }
+      // For bundle plans, store the array of included exam types
+      if (plan.exam_type === 'BUNDLE' && Array.isArray(plan.bundle_includes) && plan.bundle_includes.length > 0) {
+        bundleIncludes = plan.bundle_includes;
       }
     }
 

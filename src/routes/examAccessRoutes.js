@@ -115,7 +115,8 @@ router.post('/exchange', async (req, res) => {
         type: 'exam_session'
       },
       process.env.JWT_SECRET,
-      { expiresIn: '3h' }
+      // VP-V006: 4-hour buffer (was 3h, matching exact exam duration which caused edge-case expiry)
+      { expiresIn: '4h' }
     );
 
     return res.json({
