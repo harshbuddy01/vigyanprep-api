@@ -7,7 +7,7 @@ export const getPublicPyqs = async (req, res) => {
     // Exclude: status='draft' (only show published/ongoing/null status)
     const { data, error } = await supabase
       .from('tests')
-      .select('id, title, exam_type, pyq_year, duration_minutes, status, window_start, window_end, content_type, response_released_at, created_at')
+      .select('id, title, description, exam_type, pyq_year, duration_minutes, status, window_start, window_end, content_type, response_released_at, created_at')
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -27,6 +27,7 @@ export const getPublicPyqs = async (req, res) => {
       ...t,
       name: t.title,
       examType: t.exam_type,
+      description: t.description || null,
       year: t.pyq_year ? String(t.pyq_year) : null
     }));
 
@@ -40,7 +41,7 @@ export const getPublicTests = async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('tests')
-      .select('id, title, exam_type, pyq_year, duration_minutes, status, window_start, window_end, content_type, response_released_at, created_at')
+      .select('id, title, description, exam_type, pyq_year, duration_minutes, status, window_start, window_end, content_type, response_released_at, created_at')
       .eq('content_type', 'test_series')
       .or('status.neq.draft,status.is.null')
       .order('window_start', { ascending: false });
@@ -51,6 +52,7 @@ export const getPublicTests = async (req, res) => {
       ...t,
       name: t.title,
       examType: t.exam_type,
+      description: t.description || null,
       year: t.pyq_year ? String(t.pyq_year) : null
     }));
 
@@ -104,6 +106,7 @@ export const getPublicTestDetails = async (req, res) => {
       test: {
         id: test.id,
         title: test.title || test.name,
+        description: test.description || null,
         examType: test.exam_type || test.test_type || 'IAT',
         exam_type: test.exam_type || test.test_type || 'IAT',
         content_type: test.content_type || 'test_series',

@@ -259,6 +259,15 @@ export const releaseResults = async (req, res) => {
       .from('tests').select('*').eq('id', testId).single();
     if (testErr || !test) return res.status(404).json({ error: 'Test not found' });
 
+    // 🔒 STRICT SECURITY GUARD: Never release results while test is upcoming or live
+    if (test.window_end && new Date() < new Date(test.window_end)) {
+      const windowEndStr = new Date(test.window_end).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+      return res.status(400).json({
+        success: false,
+        error: `Security Guard: Cannot release results for an upcoming or active test. Test window ends at ${windowEndStr} IST.`
+      });
+    }
+
     // 2. Set response_released_at on the test
     const releasedAt = new Date().toISOString();
     const { error: updateErr } = await supabase
