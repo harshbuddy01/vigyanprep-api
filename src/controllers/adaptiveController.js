@@ -4,100 +4,17 @@
 // Created: 2026-08-20
 // =============================================
 
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { supabase } from '../db/supabase.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 // ─── CHAPTER DATA ────────────────────────────────────────────────────────
-// Static chapter definitions for each exam type
-const CHAPTER_DATA = {
-  iat: {
-    Physics: [
-      {
-        name: 'Mechanics & Kinematics',
-        subTopics: [
-          'Kinematics in 1D (Rectilinear Motion, Graphs, Acceleration)',
-          'Kinematics in 2D & Projectile Motion (Horizontal & Inclined)',
-          'Relative Motion in 1D and 2D (River-Boat, Rain-Man)',
-          'Newton\'s Laws of Motion & Constraint Relations',
-          'Friction (Static, Kinetic, Rolling)',
-          'Circular Motion (Centripetal Acceleration, Banking)',
-          'Work, Energy & Power (Work-Energy Theorem)',
-          'Center of Mass, Linear Momentum & Collisions'
-        ]
-      },
-      { name: 'Rotational Motion', subTopics: ['Moment of Inertia', 'Angular Momentum & Conservation', 'Torque & Angular Acceleration', 'Rolling Motion without Slipping', 'Rotational Dynamics'] },
-      { name: 'Gravitation', subTopics: ['Kepler\'s Laws', 'Gravitational Potential & Field', 'Escape Velocity', 'Orbital Mechanics & Satellites', 'Gravitational Binding Energy'] },
-      { name: 'Oscillations & Waves', subTopics: ['Simple Harmonic Motion (SHM)', 'Damped & Forced Oscillations', 'Wave Equation & Velocity', 'Doppler Effect in Sound', 'Superposition & Standing Waves'] },
-      { name: 'Thermodynamics & Heat', subTopics: ['First & Second Laws of Thermodynamics', 'Carnot Engine & Efficiency', 'Entropy & Heat Transfer', 'Ideal Gas Equation & Kinetic Theory', 'Calorimetry & Thermal Expansion'] },
-      { name: 'Electrostatics', subTopics: ['Coulomb\'s Law & Superposition', 'Gauss\'s Law & Applications', 'Electric Potential & Energy', 'Capacitors & Dielectrics', 'Charge Distribution & Dipoles'] },
-      { name: 'Current Electricity', subTopics: ['Ohm\'s Law & Drift Velocity', 'Kirchhoff\'s Current & Voltage Laws', 'RC Circuits & Transient Analysis', 'Wheatstone Bridge & Potentiometer', 'Electrical Power & Heating Effect'] },
-      { name: 'Magnetism & EMI', subTopics: ['Biot-Savart Law & Magnetic Field', 'Ampere\'s Circuital Law & Solenoids', 'Lorentz Force & Cyclotron', 'Faraday\'s & Lenz\'s Law', 'Self & Mutual Inductance', 'AC Circuits & Resonance'] },
-      { name: 'Optics & Wave Optics', subTopics: ['Geometrical Optics (Reflection & Refraction)', 'Thin Lens & Mirror Formulas', 'Total Internal Reflection & Prisms', 'Young\'s Double Slit Experiment (YDSE)', 'Diffraction & Polarization'] },
-      { name: 'Modern Physics', subTopics: ['Photoelectric Effect & Photons', 'Bohr Model of Hydrogen Atom', 'De Broglie Wavelength & Dual Nature', 'Nuclear Physics & Binding Energy', 'Radioactivity & Nuclear Decay'] },
-    ],
-    Chemistry: [
-      { name: 'Atomic Structure', subTopics: ['Quantum Numbers & Orbitals', 'Bohr Model & Rydberg Formula', 'Electronic Configuration & Aufbau Principle', 'Heisenberg Uncertainty Principle'] },
-      { name: 'Chemical Bonding', subTopics: ['VSEPR Theory & Shapes of Molecules', 'Hybridization & Molecular Geometry', 'Molecular Orbital Theory (MOT)', 'Hydrogen Bonding & Intermolecular Forces', 'Dipole Moments & Ionic Character'] },
-      { name: 'Thermodynamics & Thermochemistry', subTopics: ['Enthalpy & First Law', 'Hess\'s Law & Bond Energy Calculations', 'Gibbs Free Energy & Spontaneity', 'Entropy & Second Law of Thermodynamics'] },
-      { name: 'Chemical Kinetics', subTopics: ['Rate Laws & Integrated Rate Equations', 'First Order & Second Order Reactions', 'Arrhenius Equation & Activation Energy', 'Reaction Mechanisms & Catalysis'] },
-      { name: 'Chemical & Ionic Equilibrium', subTopics: ['Le Chatelier\'s Principle', 'Equilibrium Constant (Kc, Kp)', 'pH Calculations & Buffer Solutions', 'Solubility Product (Ksp) & Salt Hydrolysis'] },
-      { name: 'Electrochemistry', subTopics: ['Nernst Equation & Cell Potential', 'Galvanic & Electrolytic Cells', 'Kohlrausch\'s Law & Conductance', 'Faraday\'s Laws of Electrolysis'] },
-      { name: 'Organic Reaction Mechanisms', subTopics: ['IUPAC Nomenclature & Isomerism', 'Electrophilic & Nucleophilic Substitution', 'Elimination Reactions (E1, E2)', 'Aldol, Cannizzaro & Named Reactions', 'Aromatic Compounds & Resonance'] },
-      { name: 'Coordination Chemistry', subTopics: ['Crystal Field Theory (CFT)', 'Werner\'s Theory & Isomerism', 'Spectrochemical Series & CFSE', 'Magnetic Properties & Color of Complexes'] },
-    ],
-    Mathematics: [
-      { name: 'Differential Calculus', subTopics: ['Limits & Indeterminate Forms', 'Continuity & Differentiability', 'Derivatives & Chain Rule', 'Application of Derivatives (Maxima, Minima, Tangents)', 'Mean Value Theorems'] },
-      { name: 'Integral Calculus', subTopics: ['Indefinite Integration Techniques', 'Definite Integrals & Properties', 'Area Under Curves', 'Differential Equations (Separable & Linear)'] },
-      { name: 'Algebra & Complex Numbers', subTopics: ['Quadratic Equations & Roots', 'Complex Numbers (Argand Plane, De Moivre\'s)', 'Matrices & Determinants (Properties & Inverses)', 'Sequences & Series (AP, GP, HP, Arithmetico-Geometric)'] },
-      { name: 'Coordinate Geometry', subTopics: ['Straight Lines & Pair of Lines', 'Circles & Tangents', 'Parabola & Standard Forms', 'Ellipse & Hyperbola (Eccentricity, Directrix)'] },
-      { name: 'Vectors & 3D Geometry', subTopics: ['Vector Algebra & Linear Combinations', 'Dot Product & Cross Product', 'Triple Products (Scalar & Vector)', 'Equation of Lines & Planes in 3D', 'Shortest Distance between Skew Lines'] },
-      { name: 'Probability & Permutations', subTopics: ['Permutations & Combinations', 'Conditional Probability & Bayes\' Theorem', 'Binomial Distribution & Expectation', 'Probability Distributions'] },
-    ],
-    Biology: [
-      { name: 'Cell Biology & Biomolecules', subTopics: ['Cell Structure & Organelles', 'Cell Division (Mitosis & Meiosis)', 'Biomolecules (Proteins, Lipids, Carbohydrates, Nucleic Acids)', 'Enzymes & Kinetics'] },
-      { name: 'Genetics & Molecular Biology', subTopics: ['Mendelian Genetics & Inheritance Patterns', 'DNA Replication, Transcription & Translation', 'Gene Regulation & Operon Model', 'Mutations & Genetic Disorders'] },
-      { name: 'Human Physiology', subTopics: ['Nervous System & Neural Conduction', 'Endocrine Control & Hormones', 'Circulatory System & Cardiac Cycle', 'Respiration & Gas Exchange', 'Excretion & Osmoregulation'] },
-      { name: 'Plant Physiology', subTopics: ['Photosynthesis (Light & Dark Reactions)', 'Plant Water Relations & Transpiration', 'Mineral Nutrition & Transport', 'Plant Growth Regulators (Auxins, Gibberellins)'] },
-      { name: 'Ecology & Evolution', subTopics: ['Ecosystem Structure & Energy Flow', 'Population Ecology & Interactions', 'Biodiversity & Conservation', 'Darwinian Evolution & Speciation'] },
-    ]
-  },
-  nest: {
-    Physics: [
-      { name: 'Classical Mechanics', subTopics: ['Kinematics in 1D & 2D', 'Newton\'s Laws & Applications', 'Work, Energy & Power', 'Center of Mass & Collisions', 'Rotational Dynamics & Moment of Inertia', 'Gravitation & Kepler\'s Laws', 'Simple Harmonic Motion'] },
-      { name: 'Electromagnetism', subTopics: ['Coulomb\'s Law & Electric Field', 'Gauss\'s Law & Capacitors', 'Current Electricity & Circuits', 'Magnetic Field & Biot-Savart Law', 'Electromagnetic Induction & AC', 'Maxwell\'s Equations & EM Waves'] },
-      { name: 'Optics & Waves', subTopics: ['Ray Optics (Reflection, Refraction, Prisms)', 'Wave Optics (Interference, Diffraction, Polarization)', 'Wave Motion & Superposition', 'Sound Waves & Doppler Effect', 'Standing Waves & Resonance'] },
-      { name: 'Thermodynamics & Kinetic Theory', subTopics: ['Laws of Thermodynamics', 'Carnot Engine & Entropy', 'Kinetic Theory of Gases', 'Ideal Gas & Equation of State', 'Thermal Properties & Heat Transfer'] },
-      { name: 'Modern Physics', subTopics: ['Photoelectric Effect & Photons', 'Bohr Model & Hydrogen Spectrum', 'De Broglie & Wave-Particle Duality', 'Nuclear Physics & Radioactivity', 'Special Relativity Basics', 'Quantum Mechanics Fundamentals'] }
-    ],
-    Chemistry: [
-      { name: 'Physical Chemistry', subTopics: ['Atomic Structure & Quantum Numbers', 'Chemical Thermodynamics & Hess\'s Law', 'Chemical Kinetics & Rate Laws', 'Chemical Equilibrium & Le Chatelier', 'Electrochemistry & Nernst Equation', 'Solutions & Colligative Properties', 'Surface Chemistry & Catalysis'] },
-      { name: 'Inorganic Chemistry', subTopics: ['Periodic Table & Periodic Trends', 'Chemical Bonding & Molecular Structure', 's-Block & p-Block Elements', 'd-Block Elements & Transition Metals', 'Coordination Compounds & CFT', 'Metallurgy & Extraction Processes', 'Qualitative Salt Analysis'] },
-      { name: 'Organic Chemistry', subTopics: ['IUPAC Nomenclature & Isomerism', 'Reaction Mechanisms (SN1, SN2, E1, E2)', 'Stereochemistry & Optical Activity', 'Hydrocarbons & Functional Groups', 'Carbonyl Compounds & Named Reactions', 'Biomolecules (Amino Acids, Carbohydrates)', 'Polymers & Practical Organic Chemistry'] }
-    ],
-    Mathematics: [
-      { name: 'Calculus', subTopics: ['Limits & Continuity', 'Differentiation & Chain Rule', 'Applications of Derivatives', 'Indefinite & Definite Integration', 'Area Under Curves', 'Differential Equations', 'Series Convergence Tests'] },
-      { name: 'Algebra', subTopics: ['Quadratic Equations & Roots', 'Complex Numbers & De Moivre', 'Matrices & Determinants', 'Linear Algebra Basics', 'Sequences, Series & Summations', 'Polynomials & Factorization'] },
-      { name: 'Combinatorics & Probability', subTopics: ['Permutations & Combinations', 'Pigeonhole Principle', 'Binomial Theorem', 'Probability & Conditional Probability', 'Bayes Theorem & Distributions', 'Generating Functions Basics'] },
-      { name: 'Number Theory & Geometry', subTopics: ['Prime Numbers & Divisibility', 'Congruences & Modular Arithmetic', 'Coordinate Geometry (Lines, Conics)', 'Vectors & 3D Geometry', 'Trigonometry & Identities', 'Geometric Constructions & Proofs'] }
-    ],
-    Biology: [
-      { name: 'Cell & Molecular Biology', subTopics: ['Cell Structure & Organelles', 'Cell Membrane & Transport', 'DNA Replication & Repair', 'Transcription & Translation', 'Cell Signaling & Signal Transduction', 'Cell Cycle, Mitosis & Meiosis'] },
-      { name: 'Genetics & Evolution', subTopics: ['Mendelian Inheritance & Pedigree', 'Linkage, Crossing Over & Mapping', 'Gene Regulation (Prokaryotic & Eukaryotic)', 'Mutations & Chromosomal Aberrations', 'Population Genetics & Hardy-Weinberg', 'Natural Selection & Speciation', 'Human Evolution'] },
-      { name: 'Ecology & Environment', subTopics: ['Ecosystem Structure & Energy Flow', 'Population Ecology & Interactions', 'Biogeochemical Cycles', 'Biodiversity & Conservation', 'Environmental Issues & Pollution', 'Climate Change & Ozone Depletion'] },
-      { name: 'Physiology (Plant & Animal)', subTopics: ['Photosynthesis & Respiration in Plants', 'Plant Water Relations & Mineral Nutrition', 'Plant Growth Regulators', 'Human Digestive & Respiratory Systems', 'Circulatory & Excretory Systems', 'Nervous System & Endocrine Control', 'Immune System & Human Health'] },
-      { name: 'Biotechnology & Applications', subTopics: ['Recombinant DNA Technology', 'PCR & DNA Fingerprinting', 'Transgenic Organisms & Bt Crops', 'Gene Therapy & Molecular Diagnostics', 'Bioethics & Biosafety Issues'] }
-    ]
-  },
-  isi: {
-    Mathematics: [
-      { name: 'Algebra & Polynomials', subTopics: ['Quadratic Equations & Discriminant', 'Polynomials & Factor Theorem', 'Complex Numbers & Argand Plane', 'Inequalities (AM-GM, Cauchy-Schwarz)', 'Sequences & Series (AP, GP, Telescoping)', 'Matrices & Determinants', 'Systems of Linear Equations'] },
-      { name: 'Number Theory', subTopics: ['Divisibility & GCD/LCM', 'Prime Numbers & Fundamental Theorem', 'Modular Arithmetic & Congruences', 'Diophantine Equations', 'Euler\'s Totient & Fermat\'s Little Theorem', 'Floor & Ceiling Functions'] },
-      { name: 'Combinatorics', subTopics: ['Permutations & Combinations', 'Pigeonhole Principle', 'Inclusion-Exclusion Principle', 'Binomial Theorem & Identities', 'Generating Functions', 'Graph Theory Basics (Paths, Cycles, Trees)'] },
-      { name: 'Geometry & Trigonometry', subTopics: ['Triangles (Congruence, Similarity, Cevians)', 'Circles (Power of a Point, Radical Axes)', 'Coordinate Geometry (Lines, Conics)', 'Trigonometric Identities & Equations', 'Geometric Transformations', 'Vectors in 2D & 3D'] },
-      { name: 'Calculus', subTopics: ['Limits & Continuity', 'Differential Calculus (Derivatives, Rolle, MVT)', 'Applications of Derivatives (Maxima, Minima, Curve Sketching)', 'Integral Calculus (Techniques, Definite Integrals)', 'Area Under Curves', 'Ordinary Differential Equations (First Order)'] },
-      { name: 'Probability & Statistics', subTopics: ['Classical Probability & Counting', 'Conditional Probability & Bayes Theorem', 'Random Variables & Expectation', 'Binomial & Poisson Distributions', 'Descriptive Statistics (Mean, Variance, SD)'] }
-    ]
-  }
-};
+// Comprehensive official chapter & subtopic definitions loaded from verified syllabus
+const CHAPTER_DATA = JSON.parse(fs.readFileSync(path.join(__dirname, 'chapterData.json'), 'utf8'));
 
 // ─── AI QUESTION GENERATION ─────────────────────────────────────────────
 
