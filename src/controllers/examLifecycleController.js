@@ -306,8 +306,8 @@ export const getAttemptResult = async (req, res) => {
     if (studentAnswers) studentAnswers.forEach(a => { answersMap[a.question_id] = a.answer; });
 
     const questionSelect = resultReleased
-      ? 'id, question_text, options, section, correct_answer, marks_positive, marks_negative, model_answer, image_url, question_number'
-      : 'id, question_text, options, section, marks_positive, marks_negative, image_url, question_number';
+      ? 'id, question_text, options, section, type, correct_answer, marks_positive, marks_negative, model_answer, image_url, question_number'
+      : 'id, question_text, options, section, type, marks_positive, marks_negative, image_url, question_number';
 
     const { data: questions } = await supabase
       .from('questions').select(questionSelect)
@@ -324,7 +324,21 @@ export const getAttemptResult = async (req, res) => {
       let marksEarned = 0;
 
       if (studentAns && resultReleased && correctAns) {
-        if (studentAns === correctAns) { status = 'correct'; marksEarned = mp; }
+        let isCorrect = false;
+        if (q.type === 'Numerical') {
+          const sNum = parseFloat(String(studentAns).trim());
+          const cNum = parseFloat(String(correctAns).trim());
+          if (!isNaN(sNum) && !isNaN(cNum)) {
+            // Evaluated with numerical equality or 0.01 floating point tolerance
+            isCorrect = Math.abs(sNum - cNum) <= 0.01 || String(studentAns).trim() === String(correctAns).trim();
+          } else {
+            isCorrect = String(studentAns).trim().toLowerCase() === String(correctAns).trim().toLowerCase();
+          }
+        } else {
+          isCorrect = studentAns === correctAns || String(studentAns).trim().toLowerCase() === String(correctAns).trim().toLowerCase();
+        }
+
+        if (isCorrect) { status = 'correct'; marksEarned = mp; }
         else { status = 'incorrect'; marksEarned = -mn; }
       } else if (studentAns) {
         status = 'attempted';
