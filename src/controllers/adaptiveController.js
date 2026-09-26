@@ -104,11 +104,12 @@ const CHAPTER_DATA = {
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY;
 const GROQ_KEY = process.env.GROQ_API_KEY;
 
-// Primary models in priority order (Fastest first to guarantee sub-3-second generation)
+// Primary models in priority order (Fastest first to guarantee sub-second to rapid generation)
 const AI_MODELS = [
   { provider: 'openrouter', model: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
   { provider: 'openrouter', model: 'meta-llama/llama-3.3-70b-instruct', name: 'Llama 3.3 70B' },
   { provider: 'openrouter', model: 'deepseek/deepseek-chat', name: 'DeepSeek V3' },
+  { provider: 'openrouter', model: 'qwen/qwen-2.5-72b-instruct', name: 'Qwen 2.5 72B' },
 ];
 
 function buildQuestionPrompt(examType, subject, chapterName, subTopics, count, difficulty, weakSubTopics, seenPrompts = []) {
@@ -178,17 +179,17 @@ STRICT JSON OUTPUT SPECIFICATIONS:
    - "options": (array of exactly 4 strings: [option A, option B, option C, option D])
    - "correctAnswer": ("A" | "B" | "C" | "D")
    - "difficulty": "${difficulty}"
-   - "explanation": (MUST start with "**🎯 Core Concept:** [Explanation of fundamental law/mechanism]" followed by "**📐 Step-by-Step Derivation:**" and "**💡 Conceptual Takeaway:**")
+   - "explanation": (Concise 3-part breakdown: "**🎯 Core Concept:** [Law/Mechanism] **📐 Key Steps:** [Direct 2-3 step derivation] **💡 Key Takeaway:** [Insight]")
 3. CRITICAL: All LaTeX backslashes MUST be double-escaped in JSON strings (e.g. \\\\frac{a}{b}, \\\\sqrt{x}, \\\\text{...}, \\\\xrightarrow{...}, \\\\vec{F}, \\\\theta, \\\\omega).
 4. Output ONLY the raw JSON object. Do NOT wrap in markdown backticks or commentary.`;
 }
 
-async function callOpenRouter(prompt, model, maxTokens = 4000) {
+async function callOpenRouter(prompt, model, maxTokens = 4500) {
   if (!OPENROUTER_KEY) return null;
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000);
+    const timeoutId = setTimeout(() => controller.abort(), 35000);
 
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
@@ -201,12 +202,11 @@ async function callOpenRouter(prompt, model, maxTokens = 4000) {
       body: JSON.stringify({
         model,
         messages: [
-          { role: 'system', content: 'You are an expert exam question creator. Output ONLY valid JSON objects with a "questions" array. All LaTeX backslashes must be double-escaped.' },
+          { role: 'system', content: 'You are an expert exam question creator for IISER IAT and NISER NEST. Output ONLY valid JSON with a "questions" array. All LaTeX backslashes must be double-escaped.' },
           { role: 'user', content: prompt }
         ],
         max_tokens: maxTokens,
-        temperature: 0.3,
-        response_format: { type: 'json_object' }
+        temperature: 0.3
       }),
       signal: controller.signal
     });
@@ -237,7 +237,7 @@ async function callGroq(prompt, maxTokens = 4000) {
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
@@ -248,12 +248,11 @@ async function callGroq(prompt, maxTokens = 4000) {
       body: JSON.stringify({
         model: 'llama-3.3-70b-versatile',
         messages: [
-          { role: 'system', content: 'You are an expert exam question creator. Output ONLY valid JSON objects with a "questions" array. All LaTeX backslashes must be double-escaped.' },
+          { role: 'system', content: 'You are an expert exam question creator for IISER IAT and NISER NEST. Output ONLY valid JSON with a "questions" array. All LaTeX backslashes must be double-escaped.' },
           { role: 'user', content: prompt }
         ],
         max_tokens: maxTokens,
-        temperature: 0.3,
-        response_format: { type: 'json_object' }
+        temperature: 0.3
       }),
       signal: controller.signal
     });
@@ -280,8 +279,6 @@ function parseAIResponse(rawContent) {
   if (!rawContent) return [];
 
   let text = rawContent.trim();
-
-  // Strip markdown code fences if present
   text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
 
   // 1. Direct JSON parse
@@ -304,29 +301,73 @@ function parseAIResponse(rawContent) {
     if (parsed.questions && Array.isArray(parsed.questions) && parsed.questions.length > 0) return parsed.questions;
   } catch {}
 
-  // 3. Regex block matching for {"questions": [...]}
-  try {
-    const objMatch = text.match(/\{[\s\S]*"questions"\s*:\s*(\[[\s\S]*\])[\s\S]*\}/);
-    if (objMatch && objMatch[1]) {
-      const parsedArr = JSON.parse(objMatch[1]);
-      if (Array.isArray(parsedArr) && parsedArr.length > 0) return parsedArr;
-    }
-  } catch {}
-
-  // 4. Regex individual question extractor
-  const extracted = [];
-  const qBlockRegex = /\{[^{}]*"questionText"[\s\S]*?"options"[\s\S]*?"correctAnswer"[\s\S]*?\}/g;
-  let match;
-  while ((match = qBlockRegex.exec(text)) !== null) {
-    try {
-      const singleQ = JSON.parse(match[0]);
-      if (singleQ.questionText && singleQ.options) {
-        extracted.push(singleQ);
+  // 3. Array truncation repair
+  const qStart = text.indexOf('"questions":');
+  if (qStart !== -1) {
+    const arrayStart = text.indexOf('[', qStart);
+    if (arrayStart !== -1) {
+      let lastCloseBrace = text.lastIndexOf('}');
+      while (lastCloseBrace > arrayStart) {
+        const candidate = text.slice(arrayStart, lastCloseBrace + 1) + ']';
+        try {
+          const arr = JSON.parse(candidate);
+          if (Array.isArray(arr) && arr.length > 0) return arr;
+        } catch {}
+        lastCloseBrace = text.lastIndexOf('}', lastCloseBrace - 1);
       }
-    } catch {}
+    }
   }
 
-  return extracted;
+  // 4. Token-by-token state machine that properly tracks strings, escape characters, and curly braces (immune to KaTeX braces inside strings)
+  const results = [];
+  let inString = false;
+  let escape = false;
+  let depth = 0;
+  let objStart = -1;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (char === '\\') {
+      escape = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (!inString) {
+      if (char === '{') {
+        if (depth === 0) objStart = i;
+        depth++;
+      } else if (char === '}') {
+        depth--;
+        if (depth === 0 && objStart !== -1) {
+          const objStr = text.slice(objStart, i + 1);
+          try {
+            const parsed = JSON.parse(objStr);
+            if (parsed && (parsed.questionText || parsed.question_text) && (parsed.options || parsed.choices)) {
+              results.push(parsed);
+            }
+          } catch (e) {
+            try {
+              const cleaned = objStr.replace(/\r?\n/g, '\\n');
+              const parsed = JSON.parse(cleaned);
+              if (parsed && (parsed.questionText || parsed.question_text) && (parsed.options || parsed.choices)) {
+                results.push(parsed);
+              }
+            } catch (e2) {}
+          }
+          objStart = -1;
+        }
+      }
+    }
+  }
+
+  return results;
 }
 
 async function generateQuestionsWithAI(examType, subject, chapterName, subTopics, count, difficulty, weakSubTopics, seenPrompts = []) {
@@ -335,8 +376,8 @@ async function generateQuestionsWithAI(examType, subject, chapterName, subTopics
   // Try OpenRouter models in order
   for (const modelConfig of AI_MODELS) {
     console.log(`[Adaptive] Trying ${modelConfig.name} (${modelConfig.model})...`);
-    const result = await callOpenRouter(prompt, modelConfig.model);
-    if (result) {
+    const result = await callOpenRouter(prompt, modelConfig.model, 4500);
+    if (result && result.content) {
       const questions = parseAIResponse(result.content);
       if (questions.length > 0) {
         console.log(`[Adaptive] ✅ ${modelConfig.name} generated ${questions.length} questions`);
@@ -346,13 +387,15 @@ async function generateQuestionsWithAI(examType, subject, chapterName, subTopics
   }
 
   // Fallback to Groq
-  console.log('[Adaptive] Trying Groq fallback...');
-  const groqResult = await callGroq(prompt);
-  if (groqResult) {
-    const questions = parseAIResponse(groqResult.content);
-    if (questions.length > 0) {
-      console.log(`[Adaptive] ✅ Groq generated ${questions.length} questions`);
-      return { questions, aiModel: groqResult.model };
+  if (GROQ_KEY) {
+    console.log('[Adaptive] Trying Groq fallback...');
+    const groqResult = await callGroq(prompt);
+    if (groqResult && groqResult.content) {
+      const questions = parseAIResponse(groqResult.content);
+      if (questions.length > 0) {
+        console.log(`[Adaptive] ✅ Groq generated ${questions.length} questions`);
+        return { questions, aiModel: groqResult.model };
+      }
     }
   }
 
@@ -726,43 +769,39 @@ export async function generateTest(req, res) {
 
       aiModel = result.aiModel;
 
-      if (result.questions.length === 0) {
-        return res.status(503).json({
-          success: false,
-          error: 'AI question generation temporarily unavailable. Please try again in a moment.'
+      let aiQuestions = [];
+      if (result.questions && result.questions.length > 0) {
+        // Format AI-generated questions
+        aiQuestions = result.questions.map((q, i) => ({
+          id: `ai-${Date.now()}-${i}`,
+          questionNumber: cachedQuestions.length + i + 1,
+          subTopic: q.subTopic || q.sub_topic || 'General',
+          questionText: q.questionText || q.question_text || q.question || '',
+          options: q.options || [],
+          correctAnswer: q.correctAnswer || q.correct_answer || 'A',
+          explanation: q.explanation || '',
+          difficulty: q.difficulty || difficulty
+        }));
+
+        // ─── STEP 4: Cache new questions in database (fire & forget) ───
+        const cacheRows = aiQuestions.map(q => ({
+          exam_type: examType.toLowerCase(),
+          subject,
+          chapter_name: chapterName,
+          sub_topic: q.subTopic,
+          difficulty: q.difficulty,
+          question_text: q.questionText,
+          options: q.options,
+          correct_answer: q.correctAnswer,
+          explanation: q.explanation,
+          ai_model: aiModel
+        }));
+
+        supabase.from('adaptive_question_bank').insert(cacheRows).then(({ data, error }) => {
+          if (error) console.warn('[Adaptive] Cache insert warning:', error.message);
+          else console.log(`[Adaptive] ✅ Cached ${cacheRows.length} questions in database`);
         });
       }
-
-      // Format AI-generated questions
-      const aiQuestions = result.questions.map((q, i) => ({
-        id: `ai-${Date.now()}-${i}`,
-        questionNumber: cachedQuestions.length + i + 1,
-        subTopic: q.subTopic || q.sub_topic || 'General',
-        questionText: q.questionText || q.question_text || q.question || '',
-        options: q.options || [],
-        correctAnswer: q.correctAnswer || q.correct_answer || 'A',
-        explanation: q.explanation || '',
-        difficulty: q.difficulty || difficulty
-      }));
-
-      // ─── STEP 4: Cache new questions in database (fire & forget) ───
-      const cacheRows = aiQuestions.map(q => ({
-        exam_type: examType.toLowerCase(),
-        subject,
-        chapter_name: chapterName,
-        sub_topic: q.subTopic,
-        difficulty: q.difficulty,
-        question_text: q.questionText,
-        options: q.options,
-        correct_answer: q.correctAnswer,
-        explanation: q.explanation,
-        ai_model: aiModel
-      }));
-
-      supabase.from('adaptive_question_bank').insert(cacheRows).then(({ data, error }) => {
-        if (error) console.warn('[Adaptive] Cache insert warning:', error.message);
-        else console.log(`[Adaptive] ✅ Cached ${cacheRows.length} questions in database`);
-      });
 
       // Merge cached + AI questions
       const formattedCached = cachedQuestions.map((q, i) => ({
@@ -777,6 +816,53 @@ export async function generateTest(req, res) {
       }));
 
       questions = [...formattedCached, ...aiQuestions];
+
+      // ─── DATABASE RESCUE: If questions are insufficient or AI was unavailable, rescue with DB bank ───
+      if (questions.length < count) {
+        try {
+          const existingIds = new Set(questions.map(q => q.id));
+          let fbQuery = supabase
+            .from('adaptive_question_bank')
+            .select('*')
+            .eq('exam_type', examType.toLowerCase())
+            .eq('subject', subject)
+            .eq('chapter_name', chapterName)
+            .eq('is_flagged', false);
+
+          const { data: fbRows } = await fbQuery
+            .order('times_served', { ascending: true })
+            .limit(count * 2);
+
+          if (fbRows && fbRows.length > 0) {
+            for (const fb of fbRows) {
+              if (questions.length >= count) break;
+              if (!existingIds.has(fb.id)) {
+                existingIds.add(fb.id);
+                questions.push({
+                  id: fb.id,
+                  questionNumber: questions.length + 1,
+                  subTopic: fb.sub_topic,
+                  questionText: fb.question_text,
+                  options: typeof fb.options === 'string' ? JSON.parse(fb.options) : fb.options,
+                  correctAnswer: fb.correct_answer,
+                  explanation: fb.explanation,
+                  difficulty: fb.difficulty
+                });
+              }
+            }
+            console.log(`[Adaptive] Database rescue provided total ${questions.length} questions for ${chapterName}`);
+          }
+        } catch (fbErr) {
+          console.warn('[Adaptive] Rescue query error:', fbErr.message);
+        }
+      }
+
+      if (questions.length === 0) {
+        return res.status(503).json({
+          success: false,
+          error: 'AI question generation temporarily unavailable. Please try again in a moment.'
+        });
+      }
     }
 
     // Renumber all questions
