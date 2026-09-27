@@ -330,6 +330,62 @@ async function compileWithQuickLatex(rawCode, outputFilePath) {
 }
 
 /**
+ * Cloud LaTeX Compiler fallback (latexonline.cc)
+ * Compiles full LaTeX document with standalone, TikZ, and text nodes into PDF,
+ * then converts it to 300 DPI PNG via Ghostscript (gs), pdftoppm, or sips
+ */
+async function compileWithLatexOnline(fullDoc, outputPngPath, dpi = 300) {
+  const res = await fetch('https://latexonline.cc/compile?text=' + encodeURIComponent(fullDoc), {
+    signal: AbortSignal.timeout(25000)
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(errText || `latexonline HTTP ${res.status}`);
+  }
+
+  const pdfBuf = Buffer.from(await res.arrayBuffer());
+  const tmpDir = path.dirname(outputPngPath);
+  const tmpPdfPath = path.join(tmpDir, `tmp_${Date.now()}_${Math.random().toString(36).slice(2)}.pdf`);
+  fs.writeFileSync(tmpPdfPath, pdfBuf);
+
+  try {
+    const gsBin = fs.existsSync('/usr/local/bin/gs')
+      ? '/usr/local/bin/gs'
+      : (fs.existsSync('/usr/bin/gs') ? '/usr/bin/gs' : null);
+
+    if (gsBin) {
+      await execFileAsync(gsBin, [
+        '-dSAFER', '-dBATCH', '-dNOPAUSE',
+        `-r${dpi}`, '-sDEVICE=png16m',
+        '-dTextAlphaBits=4', '-dGraphicsAlphaBits=4',
+        `-sOutputFile=${outputPngPath}`,
+        tmpPdfPath
+      ], { timeout: 15000 });
+    } else if (fs.existsSync('/usr/bin/sips')) {
+      await execFileAsync('/usr/bin/sips', ['-s', 'format', 'png', tmpPdfPath, '--out', outputPngPath], { timeout: 15000 });
+    } else {
+      const pdftoppmBin = fs.existsSync('/usr/bin/pdftoppm') ? '/usr/bin/pdftoppm' : null;
+      if (pdftoppmBin) {
+        const prefix = outputPngPath.replace(/\.png$/, '');
+        await execFileAsync(pdftoppmBin, ['-png', '-r', `${dpi}`, '-singlefile', tmpPdfPath, prefix], { timeout: 15000 });
+      } else {
+        throw new Error('Server environment does not have a PDF rasterizer (Ghostscript/poppler/sips)');
+      }
+    }
+  } finally {
+    if (fs.existsSync(tmpPdfPath)) {
+      try { fs.unlinkSync(tmpPdfPath); } catch {}
+    }
+  }
+
+  if (!fs.existsSync(outputPngPath)) {
+    throw new Error('Rasterization produced no image');
+  }
+
+  return fs.statSync(outputPngPath).size;
+}
+
+/**
  * POST /api/admin/diagrams/render-tikz
  * Compiles raw TikZ / ChemFig code into a high-resolution 300 DPI transparent PNG
  */
@@ -361,140 +417,93 @@ export async function renderTikz(req, res) {
       });
     }
 
-    // If pdflatex is not present locally on the system, immediately compile via QuickLaTeX cloud compiler!
-    const pdflatexExists = fs.existsSync('/usr/bin/pdflatex') || fs.existsSync('/Library/TeX/texbin/pdflatex');
-    if (!pdflatexExists) {
-      try {
-        const bytes = await compileWithQuickLatex(cleanCode, finalImagePath);
-        const relativeUrl = `/uploads/diagrams/${outputFilename}`;
-        return res.json({
-          success: true,
-          cached: false,
-          sizeBytes: bytes,
-          imageUrl: relativeUrl,
-          filename: outputFilename
-        });
-      } catch (cloudErr) {
-        console.warn('QuickLaTeX fallback error:', cloudErr.message);
-        return res.status(422).json({
-          success: false,
-          error: cloudErr.message || 'LaTeX compilation failed',
-          details: cloudErr.message
-        });
-      }
+    // 1. Try LaTeXOnline cloud engine (compiles full TikZ + text nodes + math)
+    try {
+      const bytes = await compileWithLatexOnline(fullDocument, finalImagePath, dpi);
+      const relativeUrl = `/uploads/diagrams/${outputFilename}`;
+      return res.json({
+        success: true,
+        cached: false,
+        sizeBytes: bytes,
+        imageUrl: relativeUrl,
+        filename: outputFilename
+      });
+    } catch (onlineErr) {
+      console.warn('LaTeXOnline attempt noted:', onlineErr.message);
     }
 
-    // Create temporary build folder
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tikz_build_'));
-    const texPath = path.join(tmpDir, 'document.tex');
-    const pdfPath = path.join(tmpDir, 'document.pdf');
-    const pngPath = path.join(tmpDir, 'document.png');
-
+    // 2. Try QuickLaTeX cloud engine (for pure math and ChemFig structures)
     try {
-      fs.writeFileSync(texPath, fullDocument, 'utf8');
+      const bytes = await compileWithQuickLatex(cleanCode, finalImagePath);
+      const relativeUrl = `/uploads/diagrams/${outputFilename}`;
+      return res.json({
+        success: true,
+        cached: false,
+        sizeBytes: bytes,
+        imageUrl: relativeUrl,
+        filename: outputFilename
+      });
+    } catch (quickErr) {
+      console.warn('QuickLaTeX attempt noted:', quickErr.message);
+    }
 
-      // 1. Run pdflatex
-      const pdflatexBin = fs.existsSync('/usr/bin/pdflatex')
-        ? '/usr/bin/pdflatex'
-        : (fs.existsSync('/Library/TeX/texbin/pdflatex') ? '/Library/TeX/texbin/pdflatex' : 'pdflatex');
+    // 3. Try local pdflatex if installed
+    const pdflatexBin = fs.existsSync('/usr/bin/pdflatex')
+      ? '/usr/bin/pdflatex'
+      : (fs.existsSync('/Library/TeX/texbin/pdflatex') ? '/Library/TeX/texbin/pdflatex' : null);
+
+    if (pdflatexBin) {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tikz_build_'));
+      const texPath = path.join(tmpDir, 'document.tex');
+      const pdfPath = path.join(tmpDir, 'document.pdf');
+      const pngPath = path.join(tmpDir, 'document.png');
 
       try {
+        fs.writeFileSync(texPath, fullDocument, 'utf8');
         await execFileAsync(pdflatexBin, [
           '-interaction=nonstopmode',
           '-halt-on-error',
           '-output-directory', tmpDir,
           texPath
         ], { timeout: 15000 });
-      } catch (latexErr) {
-        // If local pdflatex fails or is missing, try QuickLaTeX cloud compiler before returning an error
-        try {
-          const bytes = await compileWithQuickLatex(cleanCode, finalImagePath);
-          const relativeUrl = `/uploads/diagrams/${outputFilename}`;
-          return res.json({
-            success: true,
-            cached: false,
-            sizeBytes: bytes,
-            imageUrl: relativeUrl,
-            filename: outputFilename
-          });
-        } catch (cloudErr) {
-          // Both local pdflatex and cloud compiler failed - extract error snippet
-          const logPath = path.join(tmpDir, 'document.log');
-          let errorSnippet = cloudErr.message || 'LaTeX compilation error';
-          if (fs.existsSync(logPath)) {
-            const logContent = fs.readFileSync(logPath, 'utf8');
-            const lines = logContent.split('\n');
-            const importantErrors = [];
-            for (let i = 0; i < lines.length; i++) {
-              if (lines[i].startsWith('!') || lines[i].includes('Error:')) {
-                importantErrors.push(lines[i]);
-                if (lines[i + 1] && lines[i + 1].trim()) importantErrors.push(lines[i + 1].trim());
-              }
-            }
-            if (importantErrors.length > 0) {
-              errorSnippet = importantErrors.slice(0, 3).join(' \n ');
-            }
+
+        if (fs.existsSync(pdfPath)) {
+          const gsBin = fs.existsSync('/usr/local/bin/gs')
+            ? '/usr/local/bin/gs'
+            : (fs.existsSync('/usr/bin/gs') ? '/usr/bin/gs' : null);
+
+          if (gsBin) {
+            await execFileAsync(gsBin, [
+              '-dSAFER', '-dBATCH', '-dNOPAUSE',
+              `-r${dpi}`, '-sDEVICE=png16m',
+              '-dTextAlphaBits=4', '-dGraphicsAlphaBits=4',
+              `-sOutputFile=${finalImagePath}`,
+              pdfPath
+            ], { timeout: 10000 });
+          } else if (fs.existsSync('/usr/bin/sips')) {
+            await execFileAsync('/usr/bin/sips', ['-s', 'format', 'png', pdfPath, '--out', finalImagePath], { timeout: 10000 });
           }
-          return res.status(422).json({
-            success: false,
-            error: errorSnippet,
-            details: latexErr.message
-          });
+
+          if (fs.existsSync(finalImagePath)) {
+            const stats = fs.statSync(finalImagePath);
+            return res.json({
+              success: true,
+              cached: false,
+              sizeBytes: stats.size,
+              imageUrl: `/uploads/diagrams/${outputFilename}`,
+              filename: outputFilename
+            });
+          }
         }
-      }
-
-      if (!fs.existsSync(pdfPath)) {
-        return res.status(500).json({ success: false, error: 'PDF compilation produced no output file' });
-      }
-
-      // 2. Convert PDF to 300 DPI Transparent PNG using Ghostscript or sips
-      const gsBin = fs.existsSync('/usr/bin/gs')
-        ? '/usr/bin/gs'
-        : (fs.existsSync('/usr/local/bin/gs') ? '/usr/local/bin/gs' : 'gs');
-
-      try {
-        await execFileAsync(gsBin, [
-          '-dSAFER',
-          '-dBATCH',
-          '-dNOPAUSE',
-          `-r${dpi}`,
-          '-sDEVICE=png16m',
-          '-dTextAlphaBits=4',
-          '-dGraphicsAlphaBits=4',
-          `-sOutputFile=${pngPath}`,
-          pdfPath
-        ], { timeout: 10000 });
-      } catch {
-        // Fallback to macOS sips if available
-        if (fs.existsSync('/usr/bin/sips')) {
-          await execFileAsync('/usr/bin/sips', ['-s', 'format', 'png', pdfPath, '--out', pngPath], { timeout: 10000 });
-        }
-      }
-
-      if (!fs.existsSync(pngPath)) {
-        return res.status(500).json({ success: false, error: 'Image conversion failed' });
-      }
-
-      // Move generated PNG to permanent uploads/diagrams directory
-      fs.copyFileSync(pngPath, finalImagePath);
-      const stats = fs.statSync(finalImagePath);
-      const relativeUrl = `/uploads/diagrams/${outputFilename}`;
-
-      return res.json({
-        success: true,
-        cached: false,
-        sizeBytes: stats.size,
-        imageUrl: relativeUrl,
-        filename: outputFilename
-      });
-    } finally {
-      // Clean up temp build folder
-      try {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
-      } catch (cleanErr) {
-        console.warn('Failed to clean temp build dir:', cleanErr);
+      } catch (localErr) {
+        console.warn('Local pdflatex failed:', localErr.message);
       }
     }
+
+    return res.status(422).json({
+      success: false,
+      error: 'TikZ compilation failed. You can paste your diagram screenshot directly with Cmd+V / Ctrl+V in the "Upload / Paste" tab.'
+    });
   } catch (err) {
     console.error('TikZ compiler error:', err);
     return res.status(500).json({ success: false, error: err.message || 'Server error compiling diagram' });

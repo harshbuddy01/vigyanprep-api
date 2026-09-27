@@ -210,10 +210,10 @@ export const updateQuestionInBank = async (req, res) => {
     }
     if (options !== undefined && Array.isArray(options)) updates.options = options;
     if (correct_answer !== undefined) updates.correct_answer = correct_answer;
-    if (image_url !== undefined) updates.image_url = image_url || null;
+    if (image_url !== undefined) updates.image_url = (image_url && typeof image_url === 'string' && image_url.trim()) ? image_url.trim() : null;
     if (marks_positive !== undefined) updates.marks_positive = Number(marks_positive);
     if (marks_negative !== undefined) updates.marks_negative = Number(marks_negative);
-    if (solution_explanation !== undefined) updates.model_answer = solution_explanation;
+    if (solution_explanation !== undefined) updates.model_answer = (solution_explanation && typeof solution_explanation === 'string' && solution_explanation.trim()) ? solution_explanation.trim() : null;
 
     const { data, error } = await supabase
       .from('questions')
