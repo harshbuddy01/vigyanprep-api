@@ -277,6 +277,13 @@ export async function renderTikz(req, res) {
           texPath
         ], { timeout: 15000 });
       } catch (latexErr) {
+        if (latexErr.code === 'ENOENT' || (latexErr.message && latexErr.message.includes('ENOENT'))) {
+          return res.status(422).json({
+            success: false,
+            error: 'Server environment does not have pdflatex (TeX Live) installed. Please use the "Upload / Paste" tab to paste your diagram screenshot (Ctrl+V / Cmd+V) or upload an image.',
+            details: latexErr.message
+          });
+        }
         // Read log file to give the teacher a crystal clear error message
         const logPath = path.join(tmpDir, 'document.log');
         let errorSnippet = 'LaTeX compilation error';
