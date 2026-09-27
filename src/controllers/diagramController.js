@@ -330,28 +330,66 @@ async function compileWithQuickLatex(rawCode, outputFilePath) {
 }
 
 /**
- * Cloud LaTeX Compiler fallback (latexonline.cc)
- * Compiles full LaTeX document with standalone, TikZ, and text nodes into PDF,
- * then converts it to 300 DPI PNG via Ghostscript (gs), pdftoppm, or sips
+ * Build an article-class LaTeX document from raw TikZ body.
+ * latexonline.cc doesn't support standalone class (\normalsize undefined).
+ * Article class is universally supported by all online compilers.
  */
-async function compileWithLatexOnline(fullDoc, outputPngPath, dpi = 300) {
-  const res = await fetch('https://latexonline.cc/compile?text=' + encodeURIComponent(fullDoc), {
-    signal: AbortSignal.timeout(25000)
-  });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(errText || `latexonline HTTP ${res.status}`);
+function buildArticleDoc(tikzBody) {
+  // Extract just the tikzpicture body if a full document was passed
+  let body = tikzBody;
+  if (body.includes('\\begin{document}')) {
+    const docMatch = body.match(/\\begin\{document\}([\s\S]*?)\\end\{document\}/);
+    body = docMatch ? docMatch[1].trim() : body.split('\\begin{document}')[1]?.split('\\end{document}')[0]?.trim() || body;
   }
+  // Strip any documentclass/usepackage/usetikzlibrary already in body
+  body = body.replace(/\\documentclass[^\n]*/g, '');
+  body = body.replace(/\\usepackage[^\n]*/g, '');
+  body = body.replace(/\\usetikzlibrary[^\n]*/g, '');
+  body = body.replace(/\\definecolor[^\n]*/g, '');
+  body = body.trim();
 
-  const pdfBuf = Buffer.from(await res.arrayBuffer());
+  // Wrap each tikzpicture in a preview environment for auto-cropping
+  // The preview package crops the PDF to just the content (no huge white page)
+  body = body.replace(
+    /(\\begin\{tikzpicture\})/g,
+    '\\begin{preview}\n$1'
+  );
+  body = body.replace(
+    /(\\end\{tikzpicture\})/g,
+    '$1\n\\end{preview}'
+  );
+
+  return `\\documentclass[12pt]{article}
+\\usepackage[active,tightpage]{preview}
+\\usepackage{amsmath,amssymb,amsfonts}
+\\usepackage{tikz}
+\\usepackage{xcolor}
+\\definecolor{amber}{RGB}{245,158,11}
+\\definecolor{emerald}{RGB}{16,185,129}
+\\definecolor{indigo}{RGB}{99,102,241}
+\\definecolor{crimson}{RGB}{220,20,60}
+\\definecolor{purple}{RGB}{168,85,247}
+\\definecolor{rose}{RGB}{244,63,94}
+\\definecolor{teal}{RGB}{20,184,166}
+\\definecolor{sky}{RGB}{14,165,233}
+\\usetikzlibrary{arrows.meta,patterns,patterns.meta,calc,decorations.pathmorphing,decorations.markings,shapes,shapes.geometric,positioning,angles,quotes,intersections,3d}
+\\pagestyle{empty}
+\\begin{document}
+${body}
+\\end{document}`;
+}
+
+/**
+ * Rasterize a PDF buffer to PNG via ghostscript/pdftoppm/sips
+ */
+async function rasterizePdf(pdfBuf, outputPngPath, dpi = 300) {
   const tmpDir = path.dirname(outputPngPath);
   const tmpPdfPath = path.join(tmpDir, `tmp_${Date.now()}_${Math.random().toString(36).slice(2)}.pdf`);
   fs.writeFileSync(tmpPdfPath, pdfBuf);
 
   try {
-    const gsBin = fs.existsSync('/usr/local/bin/gs')
-      ? '/usr/local/bin/gs'
-      : (fs.existsSync('/usr/bin/gs') ? '/usr/bin/gs' : null);
+    const gsBin = fs.existsSync('/usr/bin/gs') ? '/usr/bin/gs'
+      : (fs.existsSync('/usr/local/bin/gs') ? '/usr/local/bin/gs' : null);
 
     if (gsBin) {
       await execFileAsync(gsBin, [
@@ -361,28 +399,76 @@ async function compileWithLatexOnline(fullDoc, outputPngPath, dpi = 300) {
         `-sOutputFile=${outputPngPath}`,
         tmpPdfPath
       ], { timeout: 15000 });
-    } else if (fs.existsSync('/usr/bin/sips')) {
-      await execFileAsync('/usr/bin/sips', ['-s', 'format', 'png', tmpPdfPath, '--out', outputPngPath], { timeout: 15000 });
     } else {
       const pdftoppmBin = fs.existsSync('/usr/bin/pdftoppm') ? '/usr/bin/pdftoppm' : null;
       if (pdftoppmBin) {
         const prefix = outputPngPath.replace(/\.png$/, '');
         await execFileAsync(pdftoppmBin, ['-png', '-r', `${dpi}`, '-singlefile', tmpPdfPath, prefix], { timeout: 15000 });
+      } else if (fs.existsSync('/usr/bin/sips')) {
+        await execFileAsync('/usr/bin/sips', ['-s', 'format', 'png', tmpPdfPath, '--out', outputPngPath], { timeout: 15000 });
       } else {
-        throw new Error('Server environment does not have a PDF rasterizer (Ghostscript/poppler/sips)');
+        throw new Error('No PDF rasterizer available (gs/pdftoppm/sips)');
       }
     }
   } finally {
-    if (fs.existsSync(tmpPdfPath)) {
-      try { fs.unlinkSync(tmpPdfPath); } catch {}
-    }
+    try { if (fs.existsSync(tmpPdfPath)) fs.unlinkSync(tmpPdfPath); } catch {}
   }
 
   if (!fs.existsSync(outputPngPath)) {
     throw new Error('Rasterization produced no image');
   }
-
   return fs.statSync(outputPngPath).size;
+}
+
+/**
+ * Cloud LaTeX Compiler via latexonline.cc
+ * Uses article class (not standalone) for maximum compatibility.
+ */
+async function compileWithLatexOnline(fullDoc, outputPngPath, dpi = 300) {
+  const articleDoc = buildArticleDoc(fullDoc);
+  const res = await fetch('https://latexonline.cc/compile?text=' + encodeURIComponent(articleDoc), {
+    signal: AbortSignal.timeout(25000)
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(errText || `latexonline HTTP ${res.status}`);
+  }
+
+  const pdfBuf = Buffer.from(await res.arrayBuffer());
+  if (pdfBuf.length < 100) {
+    throw new Error('latexonline returned empty/invalid PDF');
+  }
+
+  return await rasterizePdf(pdfBuf, outputPngPath, dpi);
+}
+
+/**
+ * Cloud LaTeX Compiler via latex.ytotech.com (alternative fallback)
+ * Full TeX Live installation, supports standalone class
+ */
+async function compileWithYtotech(fullDoc, outputPngPath, dpi = 300) {
+  const res = await fetch('https://latex.ytotech.com/builds/sync', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      compiler: 'pdflatex',
+      resources: [
+        { main: true, content: fullDoc }
+      ]
+    }),
+    signal: AbortSignal.timeout(30000)
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(errText || `ytotech HTTP ${res.status}`);
+  }
+
+  const pdfBuf = Buffer.from(await res.arrayBuffer());
+  if (pdfBuf.length < 100) {
+    throw new Error('ytotech returned empty/invalid PDF');
+  }
+
+  return await rasterizePdf(pdfBuf, outputPngPath, dpi);
 }
 
 /**
@@ -432,7 +518,22 @@ export async function renderTikz(req, res) {
       console.warn('LaTeXOnline attempt noted:', onlineErr.message);
     }
 
-    // 2. Try QuickLaTeX cloud engine (for pure math and ChemFig structures)
+    // 2. Try YtoTech cloud engine (full TeX Live, supports standalone + all TikZ)
+    try {
+      const bytes = await compileWithYtotech(fullDocument, finalImagePath, dpi);
+      const relativeUrl = `/uploads/diagrams/${outputFilename}`;
+      return res.json({
+        success: true,
+        cached: false,
+        sizeBytes: bytes,
+        imageUrl: relativeUrl,
+        filename: outputFilename
+      });
+    } catch (ytotechErr) {
+      console.warn('YtoTech attempt noted:', ytotechErr.message);
+    }
+
+    // 3. Try QuickLaTeX cloud engine (for pure math and ChemFig structures)
     try {
       const bytes = await compileWithQuickLatex(cleanCode, finalImagePath);
       const relativeUrl = `/uploads/diagrams/${outputFilename}`;

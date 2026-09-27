@@ -233,13 +233,16 @@ export async function recalculateTestScoresAndRanks(testId) {
       ? Number(((liveDenominator - rankOverall) / (liveDenominator - 1) * 100).toFixed(2))
       : 100;
 
+    // Calculate actual max marks from each question's marks_positive
+    const totalMaxMarks = [...questionMap.values()].reduce((sum, q) => sum + (Number(q.marks_positive) || 4), 0);
+
     const resultPayload = {
       attempt_id: item.attempt_id,
       test_id: item.test_id,
       student_id: item.student_id,
       raw_score: item.raw_score,
       section_scores: item.section_scores,
-      percentage: Number(((item.raw_score / Math.max(1, questionMap.size * 4)) * 100).toFixed(2)),
+      percentage: Number(((item.raw_score / Math.max(1, totalMaxMarks)) * 100).toFixed(2)),
       rank_overall: rankOverall,
       percentile: percentile
     };

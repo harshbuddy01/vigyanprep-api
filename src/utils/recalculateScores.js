@@ -1,5 +1,5 @@
 import { supabase } from '../db/supabase.js';
-import { evaluateNEST, evaluateIAT, evaluateCMI } from './evaluator.js';
+import { evaluateNEST, evaluateIAT, evaluateCMI, evaluateJEE } from './evaluator.js';
 
 export async function recalculateAllScores(testId, examType) {
     try {
@@ -30,8 +30,11 @@ export async function recalculateAllScores(testId, examType) {
                 evaluation = evaluateIAT(answers, questions);
             } else if (examType === 'CMI') {
                 evaluation = evaluateCMI(answers, questions);
+            } else if (examType === 'JEE') {
+                evaluation = evaluateJEE(answers, questions);
             } else {
-                continue; // Unknown exam type
+                // Default: use IAT evaluator (all sections count)
+                evaluation = evaluateIAT(answers, questions);
             }
 
             // Update scores in Supabase
