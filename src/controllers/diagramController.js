@@ -226,8 +226,100 @@ ${cleanBody}
 }
 
 /**
+ * Cloud LaTeX Compiler fallback (QuickLaTeX API)
+ * Supports ChemFig, TikZ, and standard LaTeX documents when no local TeX Live is installed
+ */
+async function compileWithQuickLatex(rawCode, outputFilePath) {
+  let text = rawCode.trim();
+  const preambles = [];
+
+  const pkgRegex = /\\usepackage(?:\[.*?\])?\{([a-zA-Z0-9_,\s]+)\}/g;
+  let match;
+  while ((match = pkgRegex.exec(text)) !== null) {
+    const pkgs = match[1].split(',').map(p => p.trim());
+    for (const p of pkgs) {
+      if (p) preambles.push(`\\usepackage{${p}}`);
+    }
+  }
+
+  const tikzLibRegex = /\\usetikzlibrary\{([a-zA-Z0-9_,\s.]+)\}/g;
+  while ((match = tikzLibRegex.exec(text)) !== null) {
+    preambles.push(match[0]);
+  }
+
+  let formula = text;
+  if (formula.includes('\\begin{document}')) {
+    const docMatch = formula.match(/\\begin\{document\}([\s\S]*?)\\end\{document\}/);
+    if (docMatch) {
+      formula = docMatch[1].trim();
+    } else {
+      formula = formula.split('\\begin{document}')[1].trim();
+    }
+  }
+  formula = formula.replace(/\\end\{document\}/g, '').trim();
+
+  formula = formula.replace(/\\documentclass(?:\[.*?\])?\{.*?\}/g, '');
+  formula = formula.replace(/\\usepackage(?:\[.*?\])?\{.*?\}/g, '');
+  formula = formula.replace(/\\usetikzlibrary\{.*?\}/g, '');
+  formula = formula.trim();
+
+  const baseline = ['amsmath', 'amsfonts', 'amssymb', 'tikz'];
+  if (text.includes('chemfig') || text.includes('\\chemfig') || text.includes('\\lewis')) {
+    baseline.push('chemfig');
+  }
+  for (const b of baseline) {
+    if (!preambles.some(p => p.includes(`{${b}}`))) {
+      preambles.push(`\\usepackage{${b}}`);
+    }
+  }
+
+  const params = new URLSearchParams();
+  params.append('formula', formula);
+  params.append('fsize', '24px');
+  params.append('fcolor', '000000');
+  params.append('mode', '0');
+  params.append('out', '1');
+  params.append('remhost', 'quicklatex.com');
+  params.append('preamble', preambles.join('\n'));
+
+  const response = await fetch('https://quicklatex.com/latex3.f', {
+    method: 'POST',
+    body: params,
+    signal: AbortSignal.timeout(12000)
+  });
+
+  if (!response.ok) {
+    throw new Error(`QuickLaTeX HTTP ${response.status}`);
+  }
+
+  const responseText = await response.text();
+  const lines = responseText.trim().split('\n');
+  const status = lines[0]?.trim();
+
+  if (status !== '0') {
+    const errorMsg = lines.slice(1).join(' ').trim() || 'LaTeX syntax error';
+    throw new Error(errorMsg);
+  }
+
+  const imageUrl = lines[1]?.split(' ')[0]?.trim();
+  if (!imageUrl || !imageUrl.startsWith('http')) {
+    throw new Error('QuickLaTeX returned an invalid image URL');
+  }
+
+  const imgRes = await fetch(imageUrl, { signal: AbortSignal.timeout(10000) });
+  if (!imgRes.ok) {
+    throw new Error('Failed to download compiled diagram from QuickLaTeX');
+  }
+
+  const arrayBuffer = await imgRes.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  fs.writeFileSync(outputFilePath, buffer);
+  return buffer.length;
+}
+
+/**
  * POST /api/admin/diagrams/render-tikz
- * Compiles raw TikZ code into a high-resolution 300 DPI transparent PNG
+ * Compiles raw TikZ / ChemFig code into a high-resolution 300 DPI transparent PNG
  */
 export async function renderTikz(req, res) {
   try {
@@ -253,6 +345,29 @@ export async function renderTikz(req, res) {
         imageUrl: relativeUrl,
         filename: outputFilename
       });
+    }
+
+    // If pdflatex is not present locally on the system, immediately compile via QuickLaTeX cloud compiler!
+    const pdflatexExists = fs.existsSync('/usr/bin/pdflatex') || fs.existsSync('/Library/TeX/texbin/pdflatex');
+    if (!pdflatexExists) {
+      try {
+        const bytes = await compileWithQuickLatex(tikzCode, finalImagePath);
+        const relativeUrl = `/uploads/diagrams/${outputFilename}`;
+        return res.json({
+          success: true,
+          cached: false,
+          sizeBytes: bytes,
+          imageUrl: relativeUrl,
+          filename: outputFilename
+        });
+      } catch (cloudErr) {
+        console.warn('QuickLaTeX fallback error:', cloudErr.message);
+        return res.status(422).json({
+          success: false,
+          error: cloudErr.message || 'LaTeX compilation failed',
+          details: cloudErr.message
+        });
+      }
     }
 
     // Create temporary build folder
