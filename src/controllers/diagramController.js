@@ -135,7 +135,7 @@ export const TIKZ_TEMPLATES = {
  * Smart LaTeX parser: auto-detects packages, missing begin/end tikzpicture, and repairs syntax
  */
 function wrapTikzInDocument(rawCode) {
-  const trimmed = rawCode.trim();
+  const trimmed = (rawCode || '').trim().replace(/^[\s\]\)\}\`\'\>\<\,\.\;]+/, '');
 
   // If user provided a complete document with \documentclass
   if (trimmed.includes('\\documentclass')) {
@@ -230,7 +230,7 @@ ${cleanBody}
  * Supports ChemFig, TikZ, and standard LaTeX documents when no local TeX Live is installed
  */
 async function compileWithQuickLatex(rawCode, outputFilePath) {
-  let text = rawCode.trim();
+  let text = (rawCode || '').trim().replace(/^[\s\]\)\}\`\'\>\<\,\.\;]+/, '');
   const preambles = [];
 
   const pkgRegex = /\\usepackage(?:\[.*?\])?\{([a-zA-Z0-9_,\s]+)\}/g;
@@ -263,7 +263,14 @@ async function compileWithQuickLatex(rawCode, outputFilePath) {
   formula = formula.replace(/\\usetikzlibrary\{.*?\}/g, '');
   formula = formula.trim();
 
-  const baseline = ['amsmath', 'amsfonts', 'amssymb', 'tikz'];
+  // Auto-close missing \end{tikzpicture}
+  if (formula.includes('\\begin{tikzpicture}') && !formula.includes('\\end{tikzpicture}')) {
+    formula += '\n\\end{tikzpicture}';
+  } else if (!formula.includes('\\begin{tikzpicture}') && /\\(draw|node|path|fill|filldraw|shade|clip|coordinate|foreach)\b/.test(formula)) {
+    formula = `\\begin{tikzpicture}\n${formula}\n\\end{tikzpicture}`;
+  }
+
+  const baseline = ['amsmath', 'amsfonts', 'amssymb', 'tikz', 'xcolor'];
   if (text.includes('chemfig') || text.includes('\\chemfig') || text.includes('\\lewis')) {
     baseline.push('chemfig');
   }
@@ -271,6 +278,11 @@ async function compileWithQuickLatex(rawCode, outputFilePath) {
     if (!preambles.some(p => p.includes(`{${b}}`))) {
       preambles.push(`\\usepackage{${b}}`);
     }
+  }
+
+  // Ensure common TikZ libraries are loaded
+  if (!preambles.some(p => p.includes('\\usetikzlibrary'))) {
+    preambles.push('\\usetikzlibrary{arrows.meta,patterns,calc,decorations.pathmorphing,shapes}');
   }
 
   const params = new URLSearchParams();
@@ -325,11 +337,13 @@ export async function renderTikz(req, res) {
   try {
     const { tikzCode, dpi = 300 } = req.body;
 
-    if (!tikzCode || typeof tikzCode !== 'string' || !tikzCode.trim()) {
+    const cleanCode = (tikzCode || '').trim().replace(/^[\s\]\)\}\`\'\>\<\,\.\;]+/, '');
+
+    if (!cleanCode) {
       return res.status(400).json({ success: false, error: 'tikzCode is required' });
     }
 
-    const fullDocument = wrapTikzInDocument(tikzCode);
+    const fullDocument = wrapTikzInDocument(cleanCode);
     const hash = crypto.createHash('sha256').update(fullDocument + '_' + dpi).digest('hex').slice(0, 16);
     const outputFilename = `tikz_${hash}.png`;
     const finalImagePath = path.join(DIAGRAMS_DIR, outputFilename);
@@ -351,7 +365,7 @@ export async function renderTikz(req, res) {
     const pdflatexExists = fs.existsSync('/usr/bin/pdflatex') || fs.existsSync('/Library/TeX/texbin/pdflatex');
     if (!pdflatexExists) {
       try {
-        const bytes = await compileWithQuickLatex(tikzCode, finalImagePath);
+        const bytes = await compileWithQuickLatex(cleanCode, finalImagePath);
         const relativeUrl = `/uploads/diagrams/${outputFilename}`;
         return res.json({
           success: true,
@@ -392,35 +406,41 @@ export async function renderTikz(req, res) {
           texPath
         ], { timeout: 15000 });
       } catch (latexErr) {
-        if (latexErr.code === 'ENOENT' || (latexErr.message && latexErr.message.includes('ENOENT'))) {
+        // If local pdflatex fails or is missing, try QuickLaTeX cloud compiler before returning an error
+        try {
+          const bytes = await compileWithQuickLatex(cleanCode, finalImagePath);
+          const relativeUrl = `/uploads/diagrams/${outputFilename}`;
+          return res.json({
+            success: true,
+            cached: false,
+            sizeBytes: bytes,
+            imageUrl: relativeUrl,
+            filename: outputFilename
+          });
+        } catch (cloudErr) {
+          // Both local pdflatex and cloud compiler failed - extract error snippet
+          const logPath = path.join(tmpDir, 'document.log');
+          let errorSnippet = cloudErr.message || 'LaTeX compilation error';
+          if (fs.existsSync(logPath)) {
+            const logContent = fs.readFileSync(logPath, 'utf8');
+            const lines = logContent.split('\n');
+            const importantErrors = [];
+            for (let i = 0; i < lines.length; i++) {
+              if (lines[i].startsWith('!') || lines[i].includes('Error:')) {
+                importantErrors.push(lines[i]);
+                if (lines[i + 1] && lines[i + 1].trim()) importantErrors.push(lines[i + 1].trim());
+              }
+            }
+            if (importantErrors.length > 0) {
+              errorSnippet = importantErrors.slice(0, 3).join(' \n ');
+            }
+          }
           return res.status(422).json({
             success: false,
-            error: 'Server environment does not have pdflatex (TeX Live) installed. Please use the "Upload / Paste" tab to paste your diagram screenshot (Ctrl+V / Cmd+V) or upload an image.',
+            error: errorSnippet,
             details: latexErr.message
           });
         }
-        // Read log file to give the teacher a crystal clear error message
-        const logPath = path.join(tmpDir, 'document.log');
-        let errorSnippet = 'LaTeX compilation error';
-        if (fs.existsSync(logPath)) {
-          const logContent = fs.readFileSync(logPath, 'utf8');
-          const lines = logContent.split('\n');
-          const importantErrors = [];
-          for (let i = 0; i < lines.length; i++) {
-            if (lines[i].startsWith('!') || lines[i].includes('Error:')) {
-              importantErrors.push(lines[i]);
-              if (lines[i + 1] && lines[i + 1].trim()) importantErrors.push(lines[i + 1].trim());
-            }
-          }
-          if (importantErrors.length > 0) {
-            errorSnippet = importantErrors.slice(0, 3).join(' \n ');
-          }
-        }
-        return res.status(422).json({
-          success: false,
-          error: errorSnippet,
-          details: latexErr.message
-        });
       }
 
       if (!fs.existsSync(pdfPath)) {
