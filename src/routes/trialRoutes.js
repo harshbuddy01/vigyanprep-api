@@ -21,5 +21,6 @@ router.post('/admin/trial/revoke/:id', verifyAdminAuth, revokeTrialAccount);
 
 // Student Endpoint (Checks trial status & live countdown)
 router.get('/student/trial-status', getStudentTrialStatus);
+router.get('/trial/status', getStudentTrialStatus);
 
 export default router;

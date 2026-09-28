@@ -187,9 +187,9 @@ app.use('/api/exam/heartbeat', heartbeatRoutes);
 app.use('/api/challenges', challengeRoutes);
 app.use('/api/admin/results-control', adminResultsControlRoutes);
 app.use('/api/exam-access', examAccessRoutes);
+app.use('/api', trialRoutes); // 🌟 Mounts /api/admin/trial, /api/student/trial-status, and /api/trial/status
 app.use('/api/student', studentSubscriptionRoutes);
 app.use('/api/adaptive', adaptiveRoutes); // 🧠 Adaptive Chapter Revision Engine
-app.use('/api', trialRoutes); // 🌟 Mounts /api/admin/trial and /api/student/trial-status
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString(), uptime: process.uptime() });
