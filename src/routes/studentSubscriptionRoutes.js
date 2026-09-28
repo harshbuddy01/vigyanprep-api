@@ -56,20 +56,24 @@ router.get('/subscriptions', async (req, res) => {
 
     // 3. Enriched active subscriptions
     const activeSubscriptions = (subscriptions || [])
-      .filter(sub => sub.status === 'active')
+      .filter(sub => sub.status === 'active' && new Date(sub.expires_at) > new Date())
       .map(sub => {
         const expiresAt = new Date(sub.expires_at);
         const now = new Date();
         const diffTime = expiresAt.getTime() - now.getTime();
         const daysRemaining = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+        const secondsRemaining = Math.max(0, Math.floor(diffTime / 1000));
+        const isTrial = sub.plan_id === 'e0000000-0000-0000-0000-000000000024' || sub.plan_name?.toLowerCase().includes('trial');
 
         return {
           ...sub,
+          is_trial: isTrial,
+          seconds_remaining: secondsRemaining,
           plan: plansMap[sub.plan_id] || {
             id: sub.plan_id,
-            name: sub.plan_name || 'Test Series Pass',
+            name: sub.plan_name || (isTrial ? '24-Hour VIP Trial Pass' : 'Test Series Pass'),
             exam_type: sub.exam_type || 'IAT',
-            duration_days: sub.duration_days || 30
+            duration_days: sub.duration_days || (isTrial ? 1 : 30)
           },
           days_remaining: daysRemaining
         };

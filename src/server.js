@@ -51,6 +51,7 @@ import studentSubscriptionRoutes from './routes/studentSubscriptionRoutes.js';
 import studentAnalyticsRoutes from './routes/studentAnalyticsRoutes.js';
 import adaptiveRoutes from './routes/adaptiveRoutes.js'; // 🧠 Adaptive Chapter Revision Engine
 import diagramRoutes from './routes/diagramRoutes.js'; // 📐 LaTeX/TikZ Compiler & Image Uploader
+import trialRoutes from './routes/trialRoutes.js'; // 🌟 VIP 24h Demo Pass & Trial Routes
 import { startReminderScheduler } from './services/reminderScheduler.js';
 
 // Validate environment
@@ -188,6 +189,7 @@ app.use('/api/admin/results-control', adminResultsControlRoutes);
 app.use('/api/exam-access', examAccessRoutes);
 app.use('/api/student', studentSubscriptionRoutes);
 app.use('/api/adaptive', adaptiveRoutes); // 🧠 Adaptive Chapter Revision Engine
+app.use('/api', trialRoutes); // 🌟 Mounts /api/admin/trial and /api/student/trial-status
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString(), uptime: process.uptime() });

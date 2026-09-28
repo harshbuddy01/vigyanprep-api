@@ -27,6 +27,45 @@ export const startAttempt = async (req, res) => {
       return res.status(404).json({ error: 'Test not found' });
     }
 
+    // Anti-Cheating & AIR Merit Isolation: Restrict VIP trial accounts from accessing active Live scheduled tests
+    const now = new Date();
+    const TRIAL_PLAN_ID = 'e0000000-0000-0000-0000-000000000024';
+    const winStart = test.window_start ? new Date(test.window_start) : null;
+    const winEnd = test.window_end ? new Date(test.window_end) : null;
+    const isLiveScheduled = test.content_type === 'test_series' && 
+      !test.response_released_at && 
+      !test.result_released_at && 
+      ((winStart && winEnd && now >= winStart && now <= winEnd) || (winStart && now < winStart));
+
+    if (isLiveScheduled) {
+      const studentEmail = req.user?.email;
+      let subQuery = supabase
+        .from('subscriptions')
+        .select('id, plan_id, expires_at, status')
+        .eq('status', 'active');
+
+      if (studentId && studentEmail) {
+        subQuery = subQuery.or(`student_id.eq.${studentId},student_email.ilike."${studentEmail.trim()}"`);
+      } else if (studentEmail) {
+        subQuery = subQuery.eq('student_email', studentEmail.trim());
+      } else {
+        subQuery = subQuery.eq('student_id', studentId);
+      }
+
+      const { data: userSubs } = await subQuery;
+      const activeSubs = (userSubs || []).filter(s => new Date(s.expires_at) > now);
+      const hasPaid = activeSubs.some(s => s.plan_id !== TRIAL_PLAN_ID);
+      const isTrialOnly = !hasPaid && activeSubs.some(s => s.plan_id === TRIAL_PLAN_ID);
+
+      if (isTrialOnly) {
+        return res.status(403).json({
+          success: false,
+          error: 'Live proctored tests are reserved for enrolled students to protect All-India Merit Rankings. You have full access to all practice papers (IAT 01-03, JEE 01) and PYQ archives with your 24-hour VIP pass!',
+          code: 'TRIAL_LIVE_TEST_RESTRICTED'
+        });
+      }
+    }
+
     // Check existing attempt
     const { data: existing } = await supabase
       .from('attempts')
