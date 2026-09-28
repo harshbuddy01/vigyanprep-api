@@ -35,14 +35,21 @@ export const requestTrialAccount = async (req, res) => {
     const cleanEmail = email.trim().toLowerCase();
     const cleanName = (name || cleanEmail.split('@')[0]).trim();
 
-    // 1. Check if student already has a PAID (non-trial) active subscription
+    // 1. Extract and sanitize verified client IP
+    const rawIp = req.headers['cf-connecting-ip'] || 
+                  req.headers['x-real-ip'] || 
+                  req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 
+                  req.socket?.remoteAddress || 
+                  req.ip || '';
+    const clientIp = rawIp.replace(/^.*:/, '').trim() || rawIp.trim();
+
+    // 2. Check all previous subscriptions for this student email
     const { data: existingSubs } = await supabase
       .from('subscriptions')
       .select('*')
-      .eq('student_email', cleanEmail)
-      .eq('status', 'active');
+      .eq('student_email', cleanEmail);
 
-    const paidSub = (existingSubs || []).find(s => s.plan_id !== TRIAL_PLAN_ID && new Date(s.expires_at) > new Date());
+    const paidSub = (existingSubs || []).find(s => s.plan_id !== TRIAL_PLAN_ID && s.status === 'active' && new Date(s.expires_at) > new Date());
     if (paidSub) {
       return res.status(400).json({
         success: false,
@@ -50,8 +57,8 @@ export const requestTrialAccount = async (req, res) => {
       });
     }
 
-    // 2. Check if student already has an ACTIVE 24-hour trial
-    const activeTrial = (existingSubs || []).find(s => s.plan_id === TRIAL_PLAN_ID && new Date(s.expires_at) > new Date());
+    // 3. Check if student already has an ACTIVE 24-hour trial
+    const activeTrial = (existingSubs || []).find(s => s.plan_id === TRIAL_PLAN_ID && s.status === 'active' && new Date(s.expires_at) > new Date());
     if (activeTrial) {
       return res.status(200).json({
         success: true,
@@ -60,25 +67,48 @@ export const requestTrialAccount = async (req, res) => {
       });
     }
 
-    // 3. Check if there is already a PENDING request
-    const { data: pendingSubs } = await supabase
-      .from('subscriptions')
-      .select('*')
-      .eq('student_email', cleanEmail)
-      .eq('plan_id', TRIAL_PLAN_ID)
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false })
-      .limit(1);
-
-    if (pendingSubs && pendingSubs.length > 0) {
+    // 4. Check if student already has a PENDING trial request
+    const pendingTrial = (existingSubs || []).find(s => s.plan_id === TRIAL_PLAN_ID && s.status === 'pending');
+    if (pendingTrial) {
       return res.status(200).json({
         success: true,
         alreadyPending: true,
-        message: 'We have already received your request! Our academic team will verify and activate your pass within 1-2 hours.'
+        message: 'We have already received your demo request! Our academic team will verify and activate your pass shortly.'
       });
     }
 
-    // 4. Insert new pending trial request into subscriptions table
+    // 5. Anti-Abuse Rule 1: STRICTLY 1 TRIAL PER EMAIL LIFETIME (cannot re-request after expired)
+    const priorTrial = (existingSubs || []).find(s => s.plan_id === TRIAL_PLAN_ID && s.status !== 'rejected');
+    if (priorTrial) {
+      return res.status(403).json({
+        success: false,
+        code: 'EMAIL_ALREADY_USED',
+        error: 'A 24-Hour VIP Demo Pass has already been used for this email account. Each student account is eligible for exactly 1 free trial. Please choose an enrollment plan to continue.'
+      });
+    }
+
+    // 6. Anti-Abuse Rule 2: STRICTLY 1 TRIAL PER IP ADDRESS
+    const isLoopback = !clientIp || clientIp === '127.0.0.1' || clientIp === 'localhost' || clientIp === '::1';
+    if (!isLoopback) {
+      const { data: ipSubs, error: ipErr } = await supabase
+        .from('subscriptions')
+        .select('id, student_email, created_at, razorpay_order_id')
+        .eq('plan_id', TRIAL_PLAN_ID)
+        .ilike('razorpay_order_id', `%IP: ${clientIp}%`);
+
+      if (ipErr) {
+        console.warn('[TrialRequest] IP check query notice:', ipErr.message);
+      } else if (ipSubs && ipSubs.length > 0 && ipSubs[0].student_email !== cleanEmail) {
+        console.warn(`[TrialRequest] Blocked IP multi-account demo request: IP ${clientIp} already used by ${ipSubs[0].student_email}`);
+        return res.status(429).json({
+          success: false,
+          code: 'IP_ALREADY_USED',
+          error: `A 24-Hour Free Demo has already been requested/activated from this internet connection (IP: ${clientIp}). To prevent trial abuse, only 1 free trial is permitted per network. Please choose an enrollment plan to continue.`
+        });
+      }
+    }
+
+    // 7. Insert new pending trial request into subscriptions table
     const bundleIncludes = targetExam === 'ALL'
       ? ['IAT', 'NEST', 'JEE', 'CMI', 'ISI']
       : [targetExam];
@@ -86,6 +116,7 @@ export const requestTrialAccount = async (req, res) => {
     const studentId = crypto.randomUUID();
     const now = new Date();
     const expiresPlaceholder = new Date(now.getTime() + 24 * 3600 * 1000).toISOString();
+    const orderIdTag = `IP: ${clientIp || 'UNKNOWN'}${phone ? ` | PHONE: ${phone.trim()}` : ''}`;
 
     const { data: insertedRequest, error: insertErr } = await supabase
       .from('subscriptions')
@@ -99,7 +130,7 @@ export const requestTrialAccount = async (req, res) => {
         starts_at: now.toISOString(),
         expires_at: expiresPlaceholder,
         status: 'pending',
-        razorpay_order_id: phone ? `PHONE: ${phone.trim()}` : null
+        razorpay_order_id: orderIdTag
       })
       .select()
       .single();

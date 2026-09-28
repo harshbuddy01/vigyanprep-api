@@ -391,6 +391,23 @@ export function trialActivatedEmail({ studentName, email, password, bundleInclud
         <li>Complete PYQ archive practice</li>
         <li>Diagnostic percentage analysis showing your subject-by-subject strengths &amp; weaknesses</li>
       </ul>
+    </div>
+
+    <!-- Login Tip -->
+    <div style="background:rgba(255,255,255,0.03);border:1px dashed rgba(212,165,32,0.25);border-radius:10px;padding:12px 18px;margin-top:16px;text-align:center;">
+      <p style="margin:0;font-size:12px;color:${TEXT_COLOR};">
+        💡 <strong>Quick Login Tip:</strong> You can enter using your <strong>Access Password (${password})</strong> or simply click <strong>"Continue with Google"</strong> on <a href="https://test.vigyanprep.com" style="color:${BRAND_COLOR};text-decoration:none;">test.vigyanprep.com</a> using this Gmail ID for instant access!
+      </p>
+    </div>
+
+    <!-- Warm Feedback Request Section -->
+    <div style="background:rgba(212,165,32,0.08);border-left:3px solid ${BRAND_COLOR};padding:16px 20px;border-radius:0 10px 10px 0;margin-top:20px;">
+      <p style="margin:0 0 6px;font-size:14px;font-weight:700;color:#fcd34d;">
+        💬 We Value Your Experience &amp; Feedback!
+      </p>
+      <p style="margin:0;font-size:13px;color:${TEXT_COLOR};line-height:1.6;">
+        Enjoy your 24 hours of CBT mock practice! If any feedback is needed, you have suggestions to improve the platform, or you have questions regarding the test series, <strong>simply reply directly to this email</strong>. Our academic team reads every response and is here to assist you!
+      </p>
     </div>`;
 
   return baseLayout(`Your 24-Hour VIP Demo Pass is Active — VigyanPrep`, content);

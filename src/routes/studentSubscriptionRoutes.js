@@ -79,10 +79,17 @@ router.get('/subscriptions', async (req, res) => {
         };
       });
 
+    const pendingTrial = (subscriptions || []).find(s => s.plan_id === 'e0000000-0000-0000-0000-000000000024' && s.status === 'pending');
+
     return res.status(200).json({
       success: true,
       subscriptions: activeSubscriptions,
-      activeCount: activeSubscriptions.length
+      activeCount: activeSubscriptions.length,
+      pendingTrial: pendingTrial ? {
+        id: pendingTrial.id,
+        status: 'pending',
+        createdAt: pendingTrial.created_at
+      } : null
     });
   } catch (error) {
     console.error('❌ Subscriptions route error:', error);
