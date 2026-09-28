@@ -1,12 +1,147 @@
 // backend/controllers/trialController.js
 // 🌟 24-HOUR VIP DEMO & TRIAL PASS MANAGEMENT CONTROLLER
 
+import crypto from 'crypto';
 import { supabase } from '../db/supabase.js';
+import { sendEmail, EMAIL_FROM } from '../services/emailService.js';
+import { trialRequestReceivedEmail, trialActivatedEmail } from '../services/emailTemplates.js';
 
 const TRIAL_PLAN_ID = 'e0000000-0000-0000-0000-000000000024';
 
+const formatTrialInvite = ({ name, email, password, targetExam }) => {
+  return `*🏆 VigyanPrep VIP 24-Hour CBT Pass*\n\n` +
+    `Hello ${name}! Here are your credentials for 24-hour full access to the official VigyanPrep exam simulation:\n\n` +
+    `🌐 *Test Portal:* https://test.vigyanprep.com\n` +
+    `📧 *Email:* ${email}\n` +
+    `🔑 *Temporary Password:* ${password}\n` +
+    `🎯 *Target Exam:* ${targetExam}\n` +
+    `⏳ *Validity:* Exactly 24 Hours from activation\n\n` +
+    `_Note: Includes full practice tests (IAT 01-03, JEE 01), authentic NTA CBT layout, scientific calculator & diagnostic percentage analysis. Best of luck!_`;
+};
+
 /**
- * Admin: Create a 24-Hour VIP Demo Account
+ * Public: Student Requests a 24-Hour VIP Demo Pass from Website
+ * POST /api/public/trial-request
+ */
+export const requestTrialAccount = async (req, res) => {
+  try {
+    const { name, email, targetExam = 'IAT', phone = '' } = req.body;
+
+    if (!email || !email.trim()) {
+      return res.status(400).json({ success: false, error: 'Student email is required' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanName = (name || cleanEmail.split('@')[0]).trim();
+
+    // 1. Check if student already has a PAID (non-trial) active subscription
+    const { data: existingSubs } = await supabase
+      .from('subscriptions')
+      .select('*')
+      .eq('student_email', cleanEmail)
+      .eq('status', 'active');
+
+    const paidSub = (existingSubs || []).find(s => s.plan_id !== TRIAL_PLAN_ID && new Date(s.expires_at) > new Date());
+    if (paidSub) {
+      return res.status(400).json({
+        success: false,
+        error: `You already have an active enrolled subscription (${paidSub.plan_name || 'Paid Pass'})! Log in directly at https://test.vigyanprep.com.`
+      });
+    }
+
+    // 2. Check if student already has an ACTIVE 24-hour trial
+    const activeTrial = (existingSubs || []).find(s => s.plan_id === TRIAL_PLAN_ID && new Date(s.expires_at) > new Date());
+    if (activeTrial) {
+      return res.status(200).json({
+        success: true,
+        alreadyActive: true,
+        message: 'Your 24-Hour VIP Demo Pass is already active! You can log in directly at https://test.vigyanprep.com.'
+      });
+    }
+
+    // 3. Check if there is already a PENDING request
+    const { data: pendingSubs } = await supabase
+      .from('subscriptions')
+      .select('*')
+      .eq('student_email', cleanEmail)
+      .eq('plan_id', TRIAL_PLAN_ID)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (pendingSubs && pendingSubs.length > 0) {
+      return res.status(200).json({
+        success: true,
+        alreadyPending: true,
+        message: 'We have already received your request! Our academic team will verify and activate your pass within 1-2 hours.'
+      });
+    }
+
+    // 4. Insert new pending trial request into subscriptions table
+    const bundleIncludes = targetExam === 'ALL'
+      ? ['IAT', 'NEST', 'JEE', 'CMI', 'ISI']
+      : [targetExam];
+
+    const studentId = crypto.randomUUID();
+    const now = new Date();
+    const expiresPlaceholder = new Date(now.getTime() + 24 * 3600 * 1000).toISOString();
+
+    const { data: insertedRequest, error: insertErr } = await supabase
+      .from('subscriptions')
+      .insert({
+        student_id: studentId,
+        student_email: cleanEmail,
+        student_name: cleanName,
+        plan_id: TRIAL_PLAN_ID,
+        plan_name: '24-Hour VIP Trial Pass',
+        exam_type: 'BUNDLE',
+        bundle_includes: bundleIncludes,
+        amount_paid: 0,
+        starts_at: now.toISOString(),
+        expires_at: expiresPlaceholder,
+        status: 'pending',
+        razorpay_order_id: phone ? `PHONE: ${phone.trim()}` : null,
+        notes: `Website Demo Request for ${cleanName} (${targetExam})${phone ? ` - Phone: ${phone}` : ''}`
+      })
+      .select()
+      .single();
+
+    if (insertErr) {
+      console.error('Trial request insert error:', insertErr);
+      throw insertErr;
+    }
+
+    // 5. Send acknowledgment email to student via Brevo
+    try {
+      const emailHtml = trialRequestReceivedEmail({
+        studentName: cleanName,
+        email: cleanEmail,
+        targetExam: targetExam === 'ALL' ? 'All Science Exams (IAT, NEST, JEE, ISI/CMI)' : targetExam
+      });
+      await sendEmail(
+        cleanEmail,
+        '⚡ We Received Your 24-Hour VIP Demo Request — VigyanPrep',
+        emailHtml,
+        { from: EMAIL_FROM.NOTIFICATION, replyTo: EMAIL_FROM.SUPPORT }
+      );
+    } catch (emailErr) {
+      console.warn('Acknowledgment email send notice:', emailErr.message);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'We have received your email. Our team will verify and update your pass within 1 to 2 hours. Kindly please wait, you will receive a confirmation email shortly.',
+      requestId: insertedRequest?.id
+    });
+
+  } catch (err) {
+    console.error('requestTrialAccount error:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * Admin: Create a 24-Hour VIP Demo Account Directly
  * POST /api/admin/trial/create
  */
 export const createTrialAccount = async (req, res) => {
@@ -76,7 +211,7 @@ export const createTrialAccount = async (req, res) => {
       console.error('Students table upsert error:', studentErr.message);
     }
 
-    const studentId = studentRecord?.id || authUserId || `trial_${Date.now()}`;
+    const studentId = studentRecord?.id || authUserId || crypto.randomUUID();
     const startsAt = new Date().toISOString();
     const expiresAt = new Date(Date.now() + 24 * 3600 * 1000).toISOString(); // Exactly 24 hours
 
@@ -101,12 +236,14 @@ export const createTrialAccount = async (req, res) => {
         student_email: cleanEmail,
         student_name: cleanName,
         plan_id: TRIAL_PLAN_ID,
+        plan_name: '24-Hour VIP Trial Pass',
+        exam_type: 'BUNDLE',
+        bundle_includes: bundleIncludes,
+        amount_paid: 0,
         starts_at: startsAt,
         expires_at: expiresAt,
         status: 'active',
-        amount_paid: 0,
-        bundle_includes: bundleIncludes,
-        razorpay_payment_id: `TRIAL_VIP_${Date.now()}`,
+        razorpay_payment_id: `PASS: ${password}`,
         razorpay_order_id: notes ? `NOTE: ${notes.slice(0, 50)}` : 'VIP_TRIAL_PASS'
       })
       .select()
@@ -118,14 +255,31 @@ export const createTrialAccount = async (req, res) => {
     }
 
     // 6. Generate formatted WhatsApp invite message
-    const whatsappInvite = `*🏆 VigyanPrep VIP 24-Hour CBT Pass*\n\n` +
-      `Hello ${cleanName}! Here are your credentials for 24-hour full access to the official VigyanPrep exam simulation:\n\n` +
-      `🌐 *Test Portal:* https://test.vigyanprep.com\n` +
-      `📧 *Email:* ${cleanEmail}\n` +
-      `🔑 *Temporary Password:* ${password}\n` +
-      `🎯 *Target Exam:* ${targetExam}\n` +
-      `⏳ *Validity:* Exactly 24 Hours from now\n\n` +
-      `_Note: Includes full practice tests (IAT 01-03, JEE 01), authentic NTA CBT layout, scientific calculator & AIR rank analysis. Best of luck!_`;
+    const whatsappInvite = formatTrialInvite({
+      name: cleanName,
+      email: cleanEmail,
+      password,
+      targetExam: bundleIncludes.join(', '),
+      expiresAt
+    });
+
+    // 7. Send credentials email via Brevo
+    try {
+      const emailHtml = trialActivatedEmail({
+        studentName: cleanName,
+        email: cleanEmail,
+        password,
+        bundleIncludes
+      });
+      await sendEmail(
+        cleanEmail,
+        '🎉 Your 24-Hour VIP Demo Pass is Active — VigyanPrep CBT Portal',
+        emailHtml,
+        { from: EMAIL_FROM.NOTIFICATION, replyTo: EMAIL_FROM.SUPPORT }
+      );
+    } catch (emailErr) {
+      console.warn('Activation email send notice:', emailErr.message);
+    }
 
     return res.status(201).json({
       success: true,
@@ -152,7 +306,151 @@ export const createTrialAccount = async (req, res) => {
 };
 
 /**
- * Admin: List All Trial / Demo Accounts with Live Expiry
+ * Admin: Approve a Pending Trial Request & Issue Credentials
+ * POST /api/admin/trial/approve/:id
+ */
+export const approveTrialRequest = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { customPassword } = req.body || {};
+
+    const { data: request, error: getErr } = await supabase
+      .from('subscriptions')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (getErr || !request) {
+      return res.status(404).json({ success: false, error: 'Trial request not found' });
+    }
+
+    const cleanEmail = request.student_email.toLowerCase();
+    const cleanName = request.student_name || cleanEmail.split('@')[0];
+    const password = customPassword?.trim() || `VP-${Math.floor(100000 + Math.random() * 900000)}`;
+
+    // 1. Try creating user in Supabase Auth if auth.admin is enabled
+    let authUserId = request.student_id;
+    try {
+      if (supabase.auth && supabase.auth.admin && typeof supabase.auth.admin.createUser === 'function') {
+        const { data: authUser } = await supabase.auth.admin.createUser({
+          email: cleanEmail,
+          password,
+          email_confirm: true,
+          user_metadata: {
+            full_name: cleanName,
+            is_trial: true,
+            target_exam: request.bundle_includes?.[0] || 'IAT'
+          }
+        });
+        if (authUser?.user?.id) {
+          authUserId = authUser.user.id;
+        }
+      }
+    } catch (e) {
+      console.warn('Auth admin create notice:', e.message);
+    }
+
+    // 2. Ensure student profile exists in students table
+    try {
+      await supabase
+        .from('students')
+        .upsert({
+          id: authUserId,
+          email: cleanEmail,
+          full_name: cleanName,
+          course: request.bundle_includes?.join(', ') || 'IAT'
+        }, { onConflict: 'email' });
+    } catch (e) {}
+
+    // 3. Activate the 24-hour pass starting right now
+    const startsAt = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + 24 * 3600 * 1000).toISOString();
+
+    const { data: updatedSub, error: updateErr } = await supabase
+      .from('subscriptions')
+      .update({
+        student_id: authUserId,
+        status: 'active',
+        starts_at: startsAt,
+        expires_at: expiresAt,
+        razorpay_payment_id: `PASS: ${password}`
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (updateErr) throw updateErr;
+
+    // 4. Format WhatsApp invite
+    const whatsappInvite = formatTrialInvite({
+      name: cleanName,
+      email: cleanEmail,
+      password,
+      targetExam: (request.bundle_includes || ['IAT']).join(', '),
+      expiresAt
+    });
+
+    // 5. Send activation email with credentials via Brevo
+    try {
+      const emailHtml = trialActivatedEmail({
+        studentName: cleanName,
+        email: cleanEmail,
+        password,
+        bundleIncludes: request.bundle_includes || ['IAT', 'NEST']
+      });
+      await sendEmail(
+        cleanEmail,
+        '🎉 Your 24-Hour VIP Demo Pass is Active — VigyanPrep CBT Portal',
+        emailHtml,
+        { from: EMAIL_FROM.NOTIFICATION, replyTo: EMAIL_FROM.SUPPORT }
+      );
+    } catch (emailErr) {
+      console.warn('Activation email send notice:', emailErr.message);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `24-Hour VIP Demo Pass approved and credentials sent to ${cleanEmail}`,
+      password,
+      whatsappInvite,
+      trial: updatedSub
+    });
+
+  } catch (err) {
+    console.error('approveTrialRequest error:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * Admin: Reject / Dismiss a Pending Trial Request
+ * POST /api/admin/trial/reject/:id
+ */
+export const rejectTrialRequest = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { data: updated, error } = await supabase
+      .from('subscriptions')
+      .update({ status: 'rejected' })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return res.status(200).json({
+      success: true,
+      message: 'Trial request dismissed',
+      trial: updated
+    });
+  } catch (err) {
+    console.error('rejectTrialRequest error:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * Admin: List All Trial / Demo Accounts & Pending Requests
  * GET /api/admin/trial/list
  */
 export const listTrialAccounts = async (req, res) => {
@@ -162,20 +460,36 @@ export const listTrialAccounts = async (req, res) => {
       .select('*')
       .eq('plan_id', TRIAL_PLAN_ID)
       .order('created_at', { ascending: false })
-      .limit(100);
+      .limit(150);
 
     if (error) throw error;
 
     const now = new Date();
 
     const formatted = (subs || []).map(s => {
+      const isPending = s.status === 'pending';
+      const isRejected = s.status === 'rejected';
       const expiresAt = new Date(s.expires_at);
-      const isExpired = now >= expiresAt || s.status !== 'active';
+      const isExpired = !isPending && !isRejected && (now >= expiresAt || s.status !== 'active');
       const remainingMs = Math.max(0, expiresAt.getTime() - now.getTime());
       const remainingSeconds = Math.floor(remainingMs / 1000);
 
       const hours = Math.floor(remainingSeconds / 3600);
       const minutes = Math.floor((remainingSeconds % 3600) / 60);
+
+      let status = 'active';
+      let remainingFormatted = `${hours}h ${minutes}m left`;
+
+      if (isPending) {
+        status = 'pending';
+        remainingFormatted = 'Pending Approval';
+      } else if (isRejected) {
+        status = 'rejected';
+        remainingFormatted = 'Rejected';
+      } else if (isExpired) {
+        status = 'expired';
+        remainingFormatted = 'Expired';
+      }
 
       return {
         id: s.id,
@@ -184,19 +498,30 @@ export const listTrialAccounts = async (req, res) => {
         email: s.student_email,
         startsAt: s.starts_at,
         expiresAt: s.expires_at,
-        status: isExpired ? 'expired' : 'active',
+        createdAt: s.created_at,
+        status,
         remainingSeconds,
-        remainingFormatted: isExpired ? 'Expired' : `${hours}h ${minutes}m left`,
+        remainingFormatted,
         bundleIncludes: s.bundle_includes,
+        password: s.razorpay_payment_id?.startsWith('PASS: ') ? s.razorpay_payment_id.replace('PASS: ', '') : null,
+        phone: s.razorpay_order_id?.startsWith('PHONE: ') ? s.razorpay_order_id.replace('PHONE: ', '') : null,
         notes: s.razorpay_order_id?.startsWith('NOTE: ') ? s.razorpay_order_id.replace('NOTE: ', '') : ''
       };
     });
 
+    const pendingRequests = formatted.filter(t => t.status === 'pending');
+    const activeTrials = formatted.filter(t => t.status === 'active');
+    const expiredTrials = formatted.filter(t => t.status === 'expired' || t.status === 'rejected');
+
     return res.status(200).json({
       success: true,
       trials: formatted,
-      totalCount: formatted.length,
-      activeCount: formatted.filter(t => t.status === 'active').length
+      pendingRequests,
+      activeTrials,
+      expiredTrials,
+      pendingCount: pendingRequests.length,
+      activeCount: activeTrials.length,
+      totalCount: formatted.length
     });
   } catch (err) {
     console.error('listTrialAccounts error:', err);
@@ -284,7 +609,7 @@ export const revokeTrialAccount = async (req, res) => {
 
 /**
  * Student: Check Own Trial Status & Live Countdown
- * GET /api/student/trial-status
+ * GET /api/student/trial-status or /api/trial/status
  */
 export const getStudentTrialStatus = async (req, res) => {
   try {
@@ -307,6 +632,16 @@ export const getStudentTrialStatus = async (req, res) => {
 
     if (!trialSub) {
       return res.status(200).json({ success: true, isTrial: false });
+    }
+
+    if (trialSub.status === 'pending') {
+      return res.status(200).json({
+        success: true,
+        isTrial: true,
+        status: 'pending',
+        isExpired: false,
+        message: 'Your 24-hour VIP pass request is pending admin verification.'
+      });
     }
 
     const expiresAt = new Date(trialSub.expires_at);
