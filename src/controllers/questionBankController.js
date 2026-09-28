@@ -15,6 +15,7 @@ export const getQuestionBank = async (req, res) => {
       topic = '',
       difficulty = '',
       exam_type = '',
+      type = '',
       page = 1,
       limit = 30
     } = req.query;
@@ -29,6 +30,14 @@ export const getQuestionBank = async (req, res) => {
 
     if (section && section !== 'All') {
       query = query.eq('section', section);
+    }
+
+    if (type && type !== 'All') {
+      query = query.or(`type.eq.${type},question_type.eq.${type}`);
+    }
+
+    if (difficulty && difficulty !== 'All') {
+      query = query.eq('difficulty', difficulty);
     }
 
     if (search && search.trim()) {
@@ -158,11 +167,12 @@ export const createQuestionInBank = async (req, res) => {
         question_text: question_text.trim(),
         type,
         question_type: type,
-        options: Array.isArray(options) ? options : ['A', 'B', 'C', 'D'],
-        correct_answer,
+        options: type === 'Numerical' ? [] : (Array.isArray(options) && options.length >= 2 ? options : ['A', 'B', 'C', 'D']),
+        correct_answer: String(correct_answer || (type === 'Numerical' ? '0' : 'A')),
+        correct_numeric_answer: type === 'Numerical' && !isNaN(parseFloat(correct_answer)) ? parseFloat(correct_answer) : null,
         image_url: image_url || null,
         marks_positive: Number(marks_positive) || 4,
-        marks_negative: Number(marks_negative) || 1,
+        marks_negative: Number(marks_negative) !== undefined ? Number(marks_negative) : (type === 'Numerical' ? 0 : 1),
         model_answer: solution_explanation || '',
         status: 'approved'
       })
@@ -207,9 +217,22 @@ export const updateQuestionInBank = async (req, res) => {
     if (type !== undefined) {
       updates.type = type;
       updates.question_type = type;
+      if (type === 'Numerical') {
+        updates.options = [];
+        if (correct_answer !== undefined && !isNaN(parseFloat(correct_answer))) {
+          updates.correct_numeric_answer = parseFloat(correct_answer);
+        }
+      }
     }
-    if (options !== undefined && Array.isArray(options)) updates.options = options;
-    if (correct_answer !== undefined) updates.correct_answer = correct_answer;
+    if (options !== undefined && Array.isArray(options) && updates.type !== 'Numerical') updates.options = options;
+    if (correct_answer !== undefined) {
+      updates.correct_answer = String(correct_answer);
+      if (updates.type === 'Numerical' || type === 'Numerical') {
+        if (!isNaN(parseFloat(correct_answer))) {
+          updates.correct_numeric_answer = parseFloat(correct_answer);
+        }
+      }
+    }
     if (image_url !== undefined) updates.image_url = (image_url && typeof image_url === 'string' && image_url.trim()) ? image_url.trim() : null;
     if (marks_positive !== undefined) updates.marks_positive = Number(marks_positive);
     if (marks_negative !== undefined) updates.marks_negative = Number(marks_negative);
@@ -301,19 +324,23 @@ export const importQuestionsToTest = async (req, res) => {
     const newQuestionsToInsert = sourceQuestions.map(src => {
       const sec = src.section || 'Physics';
       sectionMaxNum[sec] = (sectionMaxNum[sec] || 0) + 1;
+      const isNumerical = src.type === 'Numerical' || src.question_type === 'Numerical';
 
       return {
         test_id,
         section: sec,
         question_number: sectionMaxNum[sec],
         question_text: src.question_text || src.text,
-        type: src.type || src.question_type || 'MCQ',
-        question_type: src.type || src.question_type || 'MCQ',
-        options: src.options,
-        correct_answer: src.correct_answer,
+        type: isNumerical ? 'Numerical' : (src.type || src.question_type || 'MCQ'),
+        question_type: isNumerical ? 'Numerical' : (src.type || src.question_type || 'MCQ'),
+        options: isNumerical ? [] : (Array.isArray(src.options) && src.options.length >= 2 ? src.options : ['A', 'B', 'C', 'D']),
+        correct_answer: String(src.correct_answer || (isNumerical ? '0' : 'A')),
+        correct_numeric_answer: isNumerical && !isNaN(parseFloat(src.correct_numeric_answer || src.correct_answer))
+          ? parseFloat(src.correct_numeric_answer || src.correct_answer)
+          : null,
         image_url: src.image_url,
         marks_positive: src.marks_positive || 4,
-        marks_negative: src.marks_negative || 1,
+        marks_negative: isNumerical ? 0 : (src.marks_negative !== undefined ? src.marks_negative : 1),
         model_answer: src.model_answer || src.solution_explanation || '',
         status: 'approved'
       };

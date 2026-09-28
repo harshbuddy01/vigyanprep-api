@@ -547,22 +547,24 @@ export const approveAndPublishPyq = async (req, res) => {
     }
 
     // 2. Insert Questions
-    const sanitizedQuestions = questions.map((q, idx) => ({
-      test_id: testId,
-      section: q.section || 'Physics',
-      question_number: q.questionNumber || q.question_number || idx + 1,
-      question_text: q.question_text || q.text || `Question ${idx + 1}`,
-      type: q.type || 'MCQ',
-      question_type: q.type || 'MCQ',
-      options: Array.isArray(q.options) && q.options.length === 4
-        ? q.options
-        : ['Option A', 'Option B', 'Option C', 'Option D'],
-      correct_answer: q.correct_answer || q.correctAnswer || 'A',
-      image_url: q.image_url || q.imageUrl || null,
-      marks_positive: 4,
-      marks_negative: 1,
-      status: 'approved'
-    }));
+    const sanitizedQuestions = questions.map((q, idx) => {
+      const isNumerical = q.type === 'Numerical' || q.question_type === 'Numerical';
+      return {
+        test_id: testId,
+        section: q.section || 'Physics',
+        question_number: q.questionNumber || q.question_number || idx + 1,
+        question_text: q.question_text || q.text || `Question ${idx + 1}`,
+        type: isNumerical ? 'Numerical' : (q.type || 'MCQ'),
+        question_type: isNumerical ? 'Numerical' : (q.type || 'MCQ'),
+        options: isNumerical ? [] : (Array.isArray(q.options) && q.options.length >= 2 ? q.options : ['Option A', 'Option B', 'Option C', 'Option D']),
+        correct_answer: String(q.correct_answer || q.correctAnswer || (isNumerical ? '0' : 'A')),
+        correct_numeric_answer: isNumerical && !isNaN(parseFloat(q.correct_answer || q.correctAnswer)) ? parseFloat(q.correct_answer || q.correctAnswer) : null,
+        image_url: q.image_url || q.imageUrl || null,
+        marks_positive: q.marks_positive || 4,
+        marks_negative: q.marks_negative !== undefined ? q.marks_negative : (isNumerical ? 0 : 1),
+        status: 'approved'
+      };
+    });
 
     const { data: insertedQs, error: qErr } = await supabase
       .from('questions')

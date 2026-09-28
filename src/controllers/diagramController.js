@@ -5,6 +5,7 @@ import path from 'path';
 import crypto from 'crypto';
 import os from 'os';
 import { fileURLToPath } from 'url';
+import { uploadDiagramToStorage } from '../utils/cloudStorage.js';
 
 const execFileAsync = promisify(execFile);
 const __filename = fileURLToPath(import.meta.url);
@@ -493,12 +494,13 @@ export async function renderTikz(req, res) {
     // Check if already compiled and cached on disk
     if (fs.existsSync(finalImagePath)) {
       const stats = fs.statSync(finalImagePath);
-      const relativeUrl = `/uploads/diagrams/${outputFilename}`;
+      const buffer = fs.readFileSync(finalImagePath);
+      const imageUrl = await uploadDiagramToStorage(buffer, outputFilename, 'image/png');
       return res.json({
         success: true,
         cached: true,
         sizeBytes: stats.size,
-        imageUrl: relativeUrl,
+        imageUrl,
         filename: outputFilename
       });
     }
@@ -506,12 +508,13 @@ export async function renderTikz(req, res) {
     // 1. Try LaTeXOnline cloud engine (compiles full TikZ + text nodes + math)
     try {
       const bytes = await compileWithLatexOnline(fullDocument, finalImagePath, dpi);
-      const relativeUrl = `/uploads/diagrams/${outputFilename}`;
+      const buffer = fs.readFileSync(finalImagePath);
+      const imageUrl = await uploadDiagramToStorage(buffer, outputFilename, 'image/png');
       return res.json({
         success: true,
         cached: false,
         sizeBytes: bytes,
-        imageUrl: relativeUrl,
+        imageUrl,
         filename: outputFilename
       });
     } catch (onlineErr) {
@@ -521,12 +524,13 @@ export async function renderTikz(req, res) {
     // 2. Try YtoTech cloud engine (full TeX Live, supports standalone + all TikZ)
     try {
       const bytes = await compileWithYtotech(fullDocument, finalImagePath, dpi);
-      const relativeUrl = `/uploads/diagrams/${outputFilename}`;
+      const buffer = fs.readFileSync(finalImagePath);
+      const imageUrl = await uploadDiagramToStorage(buffer, outputFilename, 'image/png');
       return res.json({
         success: true,
         cached: false,
         sizeBytes: bytes,
-        imageUrl: relativeUrl,
+        imageUrl,
         filename: outputFilename
       });
     } catch (ytotechErr) {
@@ -536,19 +540,20 @@ export async function renderTikz(req, res) {
     // 3. Try QuickLaTeX cloud engine (for pure math and ChemFig structures)
     try {
       const bytes = await compileWithQuickLatex(cleanCode, finalImagePath);
-      const relativeUrl = `/uploads/diagrams/${outputFilename}`;
+      const buffer = fs.readFileSync(finalImagePath);
+      const imageUrl = await uploadDiagramToStorage(buffer, outputFilename, 'image/png');
       return res.json({
         success: true,
         cached: false,
         sizeBytes: bytes,
-        imageUrl: relativeUrl,
+        imageUrl,
         filename: outputFilename
       });
     } catch (quickErr) {
       console.warn('QuickLaTeX attempt noted:', quickErr.message);
     }
 
-    // 3. Try local pdflatex if installed
+    // 4. Try local pdflatex if installed
     const pdflatexBin = fs.existsSync('/usr/bin/pdflatex')
       ? '/usr/bin/pdflatex'
       : (fs.existsSync('/Library/TeX/texbin/pdflatex') ? '/Library/TeX/texbin/pdflatex' : null);
@@ -587,11 +592,13 @@ export async function renderTikz(req, res) {
 
           if (fs.existsSync(finalImagePath)) {
             const stats = fs.statSync(finalImagePath);
+            const buffer = fs.readFileSync(finalImagePath);
+            const imageUrl = await uploadDiagramToStorage(buffer, outputFilename, 'image/png');
             return res.json({
               success: true,
               cached: false,
               sizeBytes: stats.size,
-              imageUrl: `/uploads/diagrams/${outputFilename}`,
+              imageUrl,
               filename: outputFilename
             });
           }
@@ -631,16 +638,14 @@ export async function uploadDiagram(req, res) {
     const hash = crypto.createHash('sha256').update(buffer).digest('hex').slice(0, 16);
     const ext = filename ? path.extname(filename).toLowerCase() || '.png' : '.png';
     const outputFilename = `upload_${hash}${ext}`;
-    const finalPath = path.join(DIAGRAMS_DIR, outputFilename);
+    const contentType = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : (ext === '.svg' ? 'image/svg+xml' : 'image/png');
 
-    fs.writeFileSync(finalPath, buffer);
-    const stats = fs.statSync(finalPath);
-    const relativeUrl = `/uploads/diagrams/${outputFilename}`;
+    const imageUrl = await uploadDiagramToStorage(buffer, outputFilename, contentType);
 
     return res.json({
       success: true,
-      sizeBytes: stats.size,
-      imageUrl: relativeUrl,
+      sizeBytes: buffer.length,
+      imageUrl,
       filename: outputFilename
     });
   } catch (err) {
