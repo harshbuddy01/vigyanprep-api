@@ -353,6 +353,42 @@ export const importQuestionsToTest = async (req, res) => {
 
     if (insertErr) throw insertErr;
 
+    // 4. Ensure all questions in test stay cleanly partitioned (MCQ 1..N, Numerical 21..25)
+    const { data: allTestQs } = await supabase
+      .from('questions')
+      .select('id, section, question_number, type, question_type')
+      .eq('test_id', test_id)
+      .order('question_number', { ascending: true });
+
+    if (allTestQs && allTestQs.length > 0) {
+      const bySec = {};
+      for (const q of allTestQs) {
+        const sec = q.section || 'Physics';
+        bySec[sec] = bySec[sec] || [];
+        bySec[sec].push(q);
+      }
+
+      for (const sec in bySec) {
+        const secQs = bySec[sec];
+        const mcqs = secQs.filter(q => q.type !== 'Numerical' && q.question_type !== 'Numerical');
+        const numericals = secQs.filter(q => q.type === 'Numerical' || q.question_type === 'Numerical');
+
+        for (let i = 0; i < mcqs.length; i++) {
+          const exp = i + 1;
+          if (mcqs[i].question_number !== exp) {
+            await supabase.from('questions').update({ question_number: exp }).eq('id', mcqs[i].id);
+          }
+        }
+        const numStart = Math.max(21, mcqs.length + 1);
+        for (let i = 0; i < numericals.length; i++) {
+          const exp = numStart + i;
+          if (numericals[i].question_number !== exp) {
+            await supabase.from('questions').update({ question_number: exp }).eq('id', numericals[i].id);
+          }
+        }
+      }
+    }
+
     // Update test question count
     const totalCount = (existingTestQs?.length || 0) + (inserted?.length || 0);
     await supabase

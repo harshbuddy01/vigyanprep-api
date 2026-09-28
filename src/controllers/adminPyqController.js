@@ -546,25 +546,76 @@ export const approveAndPublishPyq = async (req, res) => {
       testId = test.id;
     }
 
-    // 2. Insert Questions
-    const sanitizedQuestions = questions.map((q, idx) => {
-      const isNumerical = q.type === 'Numerical' || q.question_type === 'Numerical';
-      return {
-        test_id: testId,
-        section: q.section || 'Physics',
-        question_number: q.questionNumber || q.question_number || idx + 1,
-        question_text: q.question_text || q.text || `Question ${idx + 1}`,
-        type: isNumerical ? 'Numerical' : (q.type || 'MCQ'),
-        question_type: isNumerical ? 'Numerical' : (q.type || 'MCQ'),
-        options: isNumerical ? [] : (Array.isArray(q.options) && q.options.length >= 2 ? q.options : ['Option A', 'Option B', 'Option C', 'Option D']),
-        correct_answer: String(q.correct_answer || q.correctAnswer || (isNumerical ? '0' : 'A')),
-        correct_numeric_answer: isNumerical && !isNaN(parseFloat(q.correct_answer || q.correctAnswer)) ? parseFloat(q.correct_answer || q.correctAnswer) : null,
-        image_url: q.image_url || q.imageUrl || null,
-        marks_positive: q.marks_positive || 4,
-        marks_negative: q.marks_negative !== undefined ? q.marks_negative : (isNumerical ? 0 : 1),
-        status: 'approved'
-      };
-    });
+    // 2. Auto-Order & Insert Questions (MCQs 1..20, Numericals 21..25 per section)
+    const sectionBuckets = {};
+    for (const q of questions) {
+      const sec = q.section || 'Physics';
+      sectionBuckets[sec] = sectionBuckets[sec] || [];
+      sectionBuckets[sec].push(q);
+    }
+
+    const sanitizedQuestions = [];
+    for (const sec in sectionBuckets) {
+      const secQs = sectionBuckets[sec];
+      const mcqs = [];
+      const numericals = [];
+
+      for (const q of secQs) {
+        const isNumerical = q.type === 'Numerical' || q.question_type === 'Numerical';
+        if (isNumerical) {
+          numericals.push(q);
+        } else {
+          mcqs.push(q);
+        }
+      }
+
+      // Preserve relative order if question numbers existed
+      mcqs.sort((a, b) => (a.questionNumber || a.question_number || 0) - (b.questionNumber || b.question_number || 0));
+      numericals.sort((a, b) => (a.questionNumber || a.question_number || 0) - (b.questionNumber || b.question_number || 0));
+
+      // Renumber MCQs sequentially from 1..mcqs.length
+      mcqs.forEach((q, idx) => {
+        const num = idx + 1;
+        sanitizedQuestions.push({
+          test_id: testId,
+          section: sec,
+          question_number: num,
+          question_text: q.question_text || q.text || `Question ${num}`,
+          type: q.type || 'MCQ',
+          question_type: q.type || 'MCQ',
+          options: Array.isArray(q.options) && q.options.length >= 2 ? q.options : ['Option A', 'Option B', 'Option C', 'Option D'],
+          correct_answer: String(q.correct_answer || q.correctAnswer || 'A'),
+          correct_numeric_answer: null,
+          image_url: q.image_url || q.imageUrl || null,
+          marks_positive: q.marks_positive || 4,
+          marks_negative: q.marks_negative !== undefined ? q.marks_negative : 1,
+          status: 'approved'
+        });
+      });
+
+      // Renumber Numericals starting at 21 (or Math.max(21, mcqs.length + 1))
+      const numericalStart = Math.max(21, mcqs.length + 1);
+      numericals.forEach((q, idx) => {
+        const num = numericalStart + idx;
+        const rawAns = String(q.correct_answer || q.correctAnswer || '0').trim();
+        const parsedNum = !isNaN(parseFloat(rawAns)) ? parseFloat(rawAns) : null;
+        sanitizedQuestions.push({
+          test_id: testId,
+          section: sec,
+          question_number: num,
+          question_text: q.question_text || q.text || `Question ${num}`,
+          type: 'Numerical',
+          question_type: 'Numerical',
+          options: [],
+          correct_answer: rawAns,
+          correct_numeric_answer: parsedNum,
+          image_url: q.image_url || q.imageUrl || null,
+          marks_positive: q.marks_positive || 4,
+          marks_negative: 0, // No negative marks for numerical in JEE Main Section B
+          status: 'approved'
+        });
+      });
+    }
 
     const { data: insertedQs, error: qErr } = await supabase
       .from('questions')
@@ -690,22 +741,37 @@ export const deleteQuestion = async (req, res) => {
     const { error } = await supabase.from('questions').delete().eq('id', id);
     if (error) throw error;
 
-    // After deletion, renumber remaining questions in the SAME SECTION
+    // After deletion, renumber remaining questions in the SAME SECTION (MCQ 1..N, Numerical 21..25)
     if (existingQ?.test_id && existingQ?.section) {
       const { data: remaining } = await supabase
         .from('questions')
-        .select('id, question_number')
+        .select('id, question_number, type, question_type')
         .eq('test_id', existingQ.test_id)
         .eq('section', existingQ.section)
         .order('question_number', { ascending: true });
 
       if (remaining && remaining.length > 0) {
-        for (let i = 0; i < remaining.length; i++) {
-          if (remaining[i].question_number !== i + 1) {
+        const mcqs = remaining.filter(q => q.type !== 'Numerical' && q.question_type !== 'Numerical');
+        const numericals = remaining.filter(q => q.type === 'Numerical' || q.question_type === 'Numerical');
+
+        for (let i = 0; i < mcqs.length; i++) {
+          const expected = i + 1;
+          if (mcqs[i].question_number !== expected) {
             await supabase
               .from('questions')
-              .update({ question_number: i + 1 })
-              .eq('id', remaining[i].id);
+              .update({ question_number: expected })
+              .eq('id', mcqs[i].id);
+          }
+        }
+
+        const numStart = Math.max(21, mcqs.length + 1);
+        for (let i = 0; i < numericals.length; i++) {
+          const expected = numStart + i;
+          if (numericals[i].question_number !== expected) {
+            await supabase
+              .from('questions')
+              .update({ question_number: expected })
+              .eq('id', numericals[i].id);
           }
         }
       }
