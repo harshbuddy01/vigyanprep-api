@@ -11,7 +11,8 @@ import {
   getStudentTrialStatus,
   requestTrialAccount,
   approveTrialRequest,
-  rejectTrialRequest
+  rejectTrialRequest,
+  claimTrialAccount
 } from '../controllers/trialController.js';
 
 const router = express.Router();
@@ -19,6 +20,11 @@ const router = express.Router();
 // Public Endpoints (No auth required)
 router.post('/public/trial-request', requestTrialAccount);
 router.post('/trial/request', requestTrialAccount);
+
+// Self-Claim 24-Hour VIP Demo Pass (Strict 1 per Email + 1 per IP Anti-Abuse)
+router.post('/trial/claim', claimTrialAccount);
+router.post('/student/trial-claim', claimTrialAccount);
+router.post('/student/claim-trial', claimTrialAccount);
 
 // Student Endpoint (Checks trial status & live countdown)
 router.get('/student/trial-status', getStudentTrialStatus);

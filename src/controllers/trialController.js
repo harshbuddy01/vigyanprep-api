@@ -2,6 +2,7 @@
 // 🌟 24-HOUR VIP DEMO & TRIAL PASS MANAGEMENT CONTROLLER
 
 import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
 import { supabase } from '../db/supabase.js';
 import { sendEmail, EMAIL_FROM } from '../services/emailService.js';
 import { trialRequestReceivedEmail, trialActivatedEmail } from '../services/emailTemplates.js';
@@ -500,7 +501,7 @@ export const listTrialAccounts = async (req, res) => {
         bundleIncludes: s.bundle_includes,
         password: s.razorpay_payment_id?.startsWith('PASS: ') ? s.razorpay_payment_id.replace('PASS: ', '') : null,
         phone: s.razorpay_order_id?.startsWith('PHONE: ') ? s.razorpay_order_id.replace('PHONE: ', '') : null,
-        notes: s.razorpay_order_id?.startsWith('NOTE: ') ? s.razorpay_order_id.replace('NOTE: ', '') : ''
+        notes: s.razorpay_order_id ? s.razorpay_order_id.replace(/^NOTE:\s*/i, '') : ''
       };
     });
 
@@ -661,3 +662,218 @@ export const getStudentTrialStatus = async (req, res) => {
     return res.status(500).json({ success: false, error: err.message });
   }
 };
+
+/**
+ * Student Self-Claim: Instant 24-Hour VIP Demo Pass with Anti-Abuse
+ * Constraints:
+ * 1. Strictly 1 trial per email lifetime (cannot reuse or register new trial)
+ * 2. Strictly 1 trial per IP address (cannot create multi-accounts from same device/network)
+ * 3. Cannot claim if already an active paid subscriber
+ * POST /api/trial/claim
+ */
+export const claimTrialAccount = async (req, res) => {
+  try {
+    // 1. Get student identity from req.user or Authorization header or body
+    let userEmail = req.user?.email;
+    let userName = req.user?.name;
+    let userId = req.user?.id;
+
+    if (!userEmail && req.headers.authorization?.startsWith('Bearer ')) {
+      try {
+        const rawToken = req.headers.authorization.replace('Bearer ', '').trim();
+        const decoded = jwt.decode(rawToken);
+        if (decoded?.email) userEmail = decoded.email;
+        if (decoded?.name) userName = decoded.name;
+        if (decoded?.id || decoded?.sub) userId = decoded.id || decoded.sub;
+      } catch (e) {}
+    }
+
+    const email = userEmail || req.body?.email;
+    const name = userName || req.body?.name || email?.split('@')[0] || 'Student';
+    const targetExam = req.body?.targetExam || 'ALL';
+
+    if (!email || !email.trim() || !email.includes('@')) {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid student email is required to activate your 24-Hour VIP Demo Pass.'
+      });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanName = name.trim();
+
+    // 2. Extract and sanitize verified client IP
+    const rawIp = req.headers['cf-connecting-ip'] || 
+                  req.headers['x-real-ip'] || 
+                  req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 
+                  req.socket?.remoteAddress || 
+                  req.ip || 
+                  '';
+    const clientIp = rawIp.replace(/^.*:/, '').trim() || rawIp.trim();
+
+    console.log(`[TrialClaim] Processing 24-hr trial request for ${cleanEmail} (IP: ${clientIp})`);
+
+    // 3. Check for existing subscriptions for this email
+    const { data: existingSubs, error: subsErr } = await supabase
+      .from('subscriptions')
+      .select('*')
+      .eq('student_email', cleanEmail);
+
+    if (subsErr) {
+      console.error('[TrialClaim] Subscription lookup error:', subsErr.message);
+    }
+
+    // 4. Rule: If already an active PAID subscriber, trial is unneeded
+    const paidSub = (existingSubs || []).find(s => 
+      s.plan_id !== TRIAL_PLAN_ID && 
+      s.status === 'active' && 
+      new Date(s.expires_at) > new Date()
+    );
+    if (paidSub) {
+      return res.status(400).json({
+        success: false,
+        code: 'ALREADY_PAID',
+        error: `You are already enrolled in an active subscription (${paidSub.plan_name || 'Pass'})! You have complete access to all test series.`
+      });
+    }
+
+    // 5. Rule: If student already has an active 24-hr trial currently running, return it
+    const activeTrial = (existingSubs || []).find(s => 
+      s.plan_id === TRIAL_PLAN_ID && 
+      s.status === 'active' && 
+      new Date(s.expires_at) > new Date()
+    );
+    if (activeTrial) {
+      const remainingSec = Math.max(0, Math.floor((new Date(activeTrial.expires_at).getTime() - Date.now()) / 1000));
+      return res.status(200).json({
+        success: true,
+        alreadyActive: true,
+        message: 'Your 24-Hour VIP Demo Pass is already active!',
+        trial: {
+          id: activeTrial.id,
+          expiresAt: activeTrial.expires_at,
+          remainingSeconds: remainingSec
+        }
+      });
+    }
+
+    // 6. Anti-Abuse Rule 1: STRICTLY 1 TRIAL PER EMAIL LIFETIME
+    const priorEmailTrial = (existingSubs || []).find(s => s.plan_id === TRIAL_PLAN_ID);
+    if (priorEmailTrial) {
+      console.warn(`[TrialClaim] Blocked repeated email trial for ${cleanEmail}`);
+      return res.status(403).json({
+        success: false,
+        code: 'EMAIL_ALREADY_USED',
+        error: 'A 24-Hour VIP Demo Pass has already been used for this email account. Each student account is eligible for exactly 1 free trial. Please upgrade to a test pass to continue.'
+      });
+    }
+
+    // 7. Anti-Abuse Rule 2: STRICTLY 1 TRIAL PER IP ADDRESS
+    const isLoopback = !clientIp || clientIp === '127.0.0.1' || clientIp === 'localhost' || clientIp === '::1';
+    if (!isLoopback) {
+      const { data: ipSubs, error: ipErr } = await supabase
+        .from('subscriptions')
+        .select('id, student_email, created_at, razorpay_order_id')
+        .eq('plan_id', TRIAL_PLAN_ID)
+        .ilike('razorpay_order_id', `%IP: ${clientIp}%`);
+
+      if (ipErr) {
+        console.warn('[TrialClaim] IP check query notice:', ipErr.message);
+      } else if (ipSubs && ipSubs.length > 0) {
+        console.warn(`[TrialClaim] Blocked IP multi-account abuse: IP ${clientIp} already used by ${ipSubs[0].student_email}`);
+        return res.status(429).json({
+          success: false,
+          code: 'IP_ALREADY_USED',
+          error: `A 24-Hour Free Demo has already been activated from this internet connection or device (IP: ${clientIp}). To prevent trial abuse, only 1 free trial is permitted per network. Please choose a subscription plan to continue.`
+        });
+      }
+    }
+
+    // 8. Security verification passed! Create VIP Demo Pass
+    const password = `VP-${Math.floor(100000 + Math.random() * 900000)}`;
+    const studentId = userId || crypto.randomUUID();
+    const startsAt = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + 24 * 3600 * 1000).toISOString();
+    const bundleIncludes = targetExam === 'ALL'
+      ? ['IAT', 'NEST', 'JEE', 'CMI', 'ISI']
+      : [targetExam];
+
+    // Ensure student record exists
+    try {
+      await supabase.from('students').upsert({
+        id: studentId,
+        email: cleanEmail,
+        full_name: cleanName,
+        course: bundleIncludes.join(', ')
+      }, { onConflict: 'email' });
+    } catch (upsertErr) {
+      console.warn('[TrialClaim] Student upsert notice:', upsertErr.message);
+    }
+
+    // Insert new active 24-hour trial subscription
+    const { data: newSub, error: insertErr } = await supabase
+      .from('subscriptions')
+      .insert({
+        student_id: studentId,
+        student_email: cleanEmail,
+        student_name: cleanName,
+        plan_id: TRIAL_PLAN_ID,
+        bundle_includes: bundleIncludes,
+        amount_paid: 0,
+        starts_at: startsAt,
+        expires_at: expiresAt,
+        status: 'active',
+        razorpay_payment_id: `PASS: ${password}`,
+        razorpay_order_id: `IP: ${clientIp || 'UNKNOWN'}`
+      })
+      .select()
+      .single();
+
+    if (insertErr) {
+      console.error('[TrialClaim] Subscription insert error:', insertErr);
+      return res.status(500).json({ success: false, error: 'Failed to create trial subscription' });
+    }
+
+    console.log(`[TrialClaim] ✅ Successfully activated 24-hr trial for ${cleanEmail} from IP ${clientIp}`);
+
+    // Send credentials & activation confirmation email via Brevo
+    try {
+      const emailHtml = trialActivatedEmail({
+        studentName: cleanName,
+        email: cleanEmail,
+        password,
+        bundleIncludes
+      });
+      await sendEmail(
+        cleanEmail,
+        '🎉 Your 24-Hour VIP Demo Pass is Active — VigyanPrep CBT Portal',
+        emailHtml,
+        { from: EMAIL_FROM.NOTIFICATION, replyTo: EMAIL_FROM.SUPPORT }
+      );
+    } catch (emailErr) {
+      console.warn('[TrialClaim] Activation email send notice:', emailErr.message);
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: '🎉 Your 24-Hour VIP Demo Pass is now active! You have full practice access for the next 24 hours.',
+      trial: {
+        id: newSub.id,
+        name: cleanName,
+        email: cleanEmail,
+        password,
+        targetExam,
+        startsAt,
+        expiresAt,
+        remainingSeconds: 24 * 3600,
+        bundleIncludes,
+        status: 'active'
+      }
+    });
+
+  } catch (err) {
+    console.error('[TrialClaim] Fatal error:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
