@@ -2,6 +2,7 @@
 // ⏱️ SERVER-AUTHORITATIVE EXAM LIFECYCLE, AUTOSAVE & ANTI-CHEAT ENGINE
 
 import { supabase } from '../db/supabase.js';
+import { recalculateTestScoresAndRanks } from './stagedResultController.js';
 
 /**
  * Start Exam Attempt (Server-Authoritative Clock & Deadline)
@@ -282,10 +283,6 @@ export const submitAttempt = async (req, res) => {
       return res.status(404).json({ error: 'Attempt not found' });
     }
 
-    if (attempt.status === 'submitted') {
-      return res.status(200).json({ success: true, message: 'Attempt already submitted', attempt });
-    }
-
     // Persist final answers if provided in submission payload (Array or Object format)
     let normalizedAnswers = [];
     if (Array.isArray(answers)) {
@@ -295,6 +292,38 @@ export const submitAttempt = async (req, res) => {
         question_id: qId,
         answer: ans
       }));
+    }
+
+    if (attempt.status === 'submitted') {
+      // If client provides answers that may have failed to save earlier due to network drops or token expiry:
+      if (normalizedAnswers.length > 0) {
+        const { data: testQuestions } = await supabase
+          .from('questions')
+          .select('id')
+          .eq('test_id', attempt.test_id);
+        const validQIds = new Set((testQuestions || []).map(q => q.id));
+
+        const upsertRows = normalizedAnswers
+          .map(a => ({
+            attempt_id: attemptId,
+            question_id: a.questionId || a.question_id,
+            answer: typeof a.answer === 'object' ? JSON.stringify(a.answer) : String(a.answer || ''),
+            answered_at: new Date().toISOString()
+          }))
+          .filter(row => validQIds.size === 0 || validQIds.has(row.question_id));
+
+        if (upsertRows.length > 0) {
+          await supabase.from('attempt_answers').upsert(upsertRows, { onConflict: 'attempt_id,question_id' }).catch(err => {
+            console.warn('Upsert on submit notice:', err.message);
+          });
+          try {
+            await recalculateTestScoresAndRanks(attempt.test_id);
+          } catch (recalcErr) {
+            console.warn('Recalc error:', recalcErr.message);
+          }
+        }
+      }
+      return res.status(200).json({ success: true, message: 'Attempt already submitted and answers synchronized', attempt });
     }
 
     if (normalizedAnswers.length > 0) {
@@ -334,6 +363,13 @@ export const submitAttempt = async (req, res) => {
 
     if (updateErr) throw updateErr;
 
+    // Recalculate scores and ranks for this test
+    try {
+      await recalculateTestScoresAndRanks(attempt.test_id);
+    } catch (recalcErr) {
+      console.warn('Recalculate on submit notice:', recalcErr.message);
+    }
+
     return res.status(200).json({
       success: true,
       message: 'Exam submitted successfully',
@@ -342,6 +378,124 @@ export const submitAttempt = async (req, res) => {
   } catch (err) {
     console.error('submitAttempt error:', err);
     return res.status(500).json({ error: 'Failed to submit attempt', details: err.message });
+  }
+};
+
+/**
+ * Synchronize Offline / Late Answers for an Attempt
+ * Used by ResponseSheet and Exam recovery when answers stored in localStorage exceed what backend recorded
+ */
+export const syncAttemptAnswers = async (req, res) => {
+  try {
+    const { attemptId } = req.params;
+    const { answers } = req.body;
+    const studentId = req.user?.id;
+    const studentEmail = req.user?.email;
+
+    if (!attemptId) {
+      return res.status(400).json({ success: false, error: 'attemptId is required' });
+    }
+
+    if (!answers || (typeof answers !== 'object' && !Array.isArray(answers))) {
+      return res.status(400).json({ success: false, error: 'answers payload is required' });
+    }
+
+    const { data: attempt, error: attemptErr } = await supabase
+      .from('attempts')
+      .select('*')
+      .eq('id', attemptId)
+      .single();
+
+    if (attemptErr || !attempt) {
+      return res.status(404).json({ success: false, error: 'Attempt not found' });
+    }
+
+    // Ownership check: allow student owner, matching email, or admin
+    const isOwner = (studentId && attempt.student_id === studentId) ||
+                    (studentEmail && attempt.student_email?.toLowerCase() === studentEmail.toLowerCase());
+    const isAdmin = req.user?.role === 'admin' || req.user?.role === 'super_admin';
+
+    if (!isOwner && !isAdmin) {
+      const { data: studentRecord } = await supabase
+        .from('students')
+        .select('email')
+        .eq('id', attempt.student_id)
+        .maybeSingle();
+
+      if (!studentRecord || studentRecord.email?.toLowerCase() !== studentEmail?.toLowerCase()) {
+        return res.status(403).json({ success: false, error: 'Access denied: attempt does not belong to you' });
+      }
+    }
+
+    // Normalize answers
+    let normalized = [];
+    if (Array.isArray(answers)) {
+      normalized = answers.map(a => ({
+        question_id: a.questionId || a.question_id,
+        answer: typeof a.answer === 'object' ? JSON.stringify(a.answer) : String(a.answer || '').trim()
+      }));
+    } else {
+      normalized = Object.entries(answers).map(([qId, ans]) => ({
+        question_id: qId,
+        answer: typeof ans === 'object' ? JSON.stringify(ans) : String(ans || '').trim()
+      }));
+    }
+
+    // Filter valid question IDs belonging to this test
+    const { data: testQuestions, error: qErr } = await supabase
+      .from('questions')
+      .select('id')
+      .eq('test_id', attempt.test_id);
+
+    if (qErr) throw qErr;
+
+    const validQIds = new Set((testQuestions || []).map(q => q.id));
+
+    const rowsToUpsert = normalized
+      .filter(a => a.question_id && validQIds.has(a.question_id) && a.answer !== '' && a.answer !== 'null' && a.answer !== 'undefined')
+      .map(a => ({
+        attempt_id: attemptId,
+        question_id: a.question_id,
+        answer: a.answer,
+        answered_at: new Date().toISOString()
+      }));
+
+    if (rowsToUpsert.length > 0) {
+      const { error: upsertErr } = await supabase
+        .from('attempt_answers')
+        .upsert(rowsToUpsert, { onConflict: 'attempt_id,question_id' });
+
+      if (upsertErr) {
+        console.error('[SyncAnswers] Upsert error:', upsertErr.message);
+        return res.status(500).json({ success: false, error: 'Failed to sync answers: ' + upsertErr.message });
+      }
+
+      // Also merge into attempt.answers jsonb
+      let mergedAnswers = attempt.answers && typeof attempt.answers === 'object' ? { ...attempt.answers } : {};
+      rowsToUpsert.forEach(r => {
+        mergedAnswers[r.question_id] = r.answer;
+      });
+      await supabase.from('attempts').update({ answers: mergedAnswers }).eq('id', attemptId);
+
+      // Recalculate scores and ranks if submitted
+      if (attempt.status === 'submitted') {
+        try {
+          await recalculateTestScoresAndRanks(attempt.test_id);
+        } catch (rErr) {
+          console.warn('[SyncAnswers] Recalculate warning:', rErr.message);
+        }
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Successfully synchronized ${rowsToUpsert.length} answers`,
+      syncedCount: rowsToUpsert.length,
+      testId: attempt.test_id
+    });
+  } catch (err) {
+    console.error('[SyncAnswers] Unexpected error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error during sync', details: err.message });
   }
 };
 

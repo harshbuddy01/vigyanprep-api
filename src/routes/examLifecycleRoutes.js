@@ -1,5 +1,5 @@
 import express from 'express';
-import { startAttempt, autosaveAnswers, logProctorEvent, submitAttempt, getAttemptResult, getPaperSolutions } from '../controllers/examLifecycleController.js';
+import { startAttempt, autosaveAnswers, logProctorEvent, submitAttempt, getAttemptResult, getPaperSolutions, syncAttemptAnswers } from '../controllers/examLifecycleController.js';
 import { verifyAuth } from '../middlewares/auth.js';
 
 const router = express.Router();
@@ -15,5 +15,6 @@ router.post('/start/:testId', startAttempt);
 router.post('/autosave/:attemptId', autosaveAnswers);
 router.post('/proctor-log/:attemptId', logProctorEvent);
 router.post('/submit/:attemptId', submitAttempt);
+router.post('/sync-answers/:attemptId', syncAttemptAnswers);
 
 export default router;
