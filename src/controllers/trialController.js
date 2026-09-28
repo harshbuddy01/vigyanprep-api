@@ -93,15 +93,12 @@ export const requestTrialAccount = async (req, res) => {
         student_email: cleanEmail,
         student_name: cleanName,
         plan_id: TRIAL_PLAN_ID,
-        plan_name: '24-Hour VIP Trial Pass',
-        exam_type: 'BUNDLE',
         bundle_includes: bundleIncludes,
         amount_paid: 0,
         starts_at: now.toISOString(),
         expires_at: expiresPlaceholder,
         status: 'pending',
-        razorpay_order_id: phone ? `PHONE: ${phone.trim()}` : null,
-        notes: `Website Demo Request for ${cleanName} (${targetExam})${phone ? ` - Phone: ${phone}` : ''}`
+        razorpay_order_id: phone ? `PHONE: ${phone.trim()}` : null
       })
       .select()
       .single();
@@ -236,8 +233,6 @@ export const createTrialAccount = async (req, res) => {
         student_email: cleanEmail,
         student_name: cleanName,
         plan_id: TRIAL_PLAN_ID,
-        plan_name: '24-Hour VIP Trial Pass',
-        exam_type: 'BUNDLE',
         bundle_includes: bundleIncludes,
         amount_paid: 0,
         starts_at: startsAt,
