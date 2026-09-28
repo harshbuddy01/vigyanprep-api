@@ -88,7 +88,9 @@ export const createTrialAccount = async (req, res) => {
       .eq('plan_id', TRIAL_PLAN_ID);
 
     // 5. Create fresh 24-hour VIP Trial subscription
-    const bundleIncludes = targetExam === 'ALL'
+    const bundleIncludes = Array.isArray(req.body.bundleIncludes) && req.body.bundleIncludes.length > 0
+      ? req.body.bundleIncludes
+      : targetExam === 'ALL'
       ? ['IAT', 'NEST', 'JEE', 'CMI', 'ISI']
       : [targetExam];
 
