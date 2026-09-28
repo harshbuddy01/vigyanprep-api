@@ -328,6 +328,33 @@ export const releaseResults = async (req, res) => {
       });
     }
 
+    // 1.5 Auto-finalize any attempts whose deadline has passed
+    const now = new Date();
+    const { data: allTestAttempts } = await supabase
+      .from('attempts')
+      .select('id, server_deadline, status')
+      .eq('test_id', testId);
+
+    for (const a of (allTestAttempts || [])) {
+      if (a.status === 'in_progress' && a.server_deadline && new Date(a.server_deadline) < now) {
+        await supabase
+          .from('attempts')
+          .update({
+            status: 'submitted',
+            submitted_at: a.server_deadline || now.toISOString(),
+            submit_reason: 'auto_time'
+          })
+          .eq('id', a.id);
+      }
+    }
+
+    // 1.6 Recalculate test scores, section totals, and ranks for all submitted attempts
+    try {
+      await recalculateTestScoresAndRanks(testId);
+    } catch (calcErr) {
+      console.warn('Auto score recalculation notice:', calcErr.message);
+    }
+
     // 2. Set response_released_at on the test
     const releasedAt = new Date().toISOString();
     const { error: updateErr } = await supabase
@@ -364,6 +391,24 @@ export const releaseResults = async (req, res) => {
 
         const studentMap = new Map();
         (studentList || []).forEach(s => studentMap.set(s.id, s));
+
+        // Subscriptions fallback if not yet in students table
+        const missingIds = studentIds.filter(id => !studentMap.has(id));
+        if (missingIds.length > 0) {
+          const { data: subsList } = await supabase
+            .from('subscriptions')
+            .select('student_id, student_email, student_name')
+            .in('student_id', missingIds);
+          (subsList || []).forEach(s => {
+            if (!studentMap.has(s.student_id)) {
+              studentMap.set(s.student_id, {
+                id: s.student_id,
+                email: s.student_email,
+                full_name: s.student_name
+              });
+            }
+          });
+        }
 
         const testTitle = test.title || test.name || 'Test';
         const examDate = new Date(test.window_start || releasedAt).toLocaleDateString('en-IN', {
