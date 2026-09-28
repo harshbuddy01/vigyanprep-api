@@ -16,6 +16,20 @@ export const startAttempt = async (req, res) => {
       return res.status(401).json({ error: 'Student authentication required' });
     }
 
+    // Ensure student record exists in students table
+    if (studentId && req.user?.email) {
+      try {
+        await supabase.from('students').upsert({
+          id: studentId,
+          email: req.user.email,
+          full_name: req.user.name || req.body?.candidateName || req.user.email.split('@')[0],
+          last_login_at: new Date().toISOString()
+        }, { onConflict: 'email' });
+      } catch (stSyncErr) {
+        console.warn('Student sync notice:', stSyncErr.message);
+      }
+    }
+
     // 1. Fetch test details
     const { data: test, error: testErr } = await supabase
       .from('tests')
@@ -163,6 +177,13 @@ export const autosaveAnswers = async (req, res) => {
     const deadline = new Date(attempt.server_deadline);
 
     if (now > deadline || attempt.status === 'submitted') {
+      if (attempt.status !== 'submitted') {
+        await supabase.from('attempts').update({
+          status: 'submitted',
+          submitted_at: attempt.server_deadline || now.toISOString(),
+          submit_reason: 'auto_time'
+        }).eq('id', attemptId);
+      }
       return res.status(403).json({
         error: 'Exam duration has expired. Submitting attempt automatically.',
         expired: true
@@ -180,13 +201,22 @@ export const autosaveAnswers = async (req, res) => {
       }));
     }
 
-    // Save/upsert answers
-    const upsertRows = normalizedAnswers.map(a => ({
-      attempt_id: attemptId,
-      question_id: a.questionId || a.question_id,
-      answer: typeof a.answer === 'object' ? JSON.stringify(a.answer) : String(a.answer || ''),
-      answered_at: new Date().toISOString()
-    }));
+    // Filter answers to only save questions belonging to this test
+    const { data: testQuestions } = await supabase
+      .from('questions')
+      .select('id')
+      .eq('test_id', attempt.test_id);
+    const validQIds = new Set((testQuestions || []).map(q => q.id));
+
+    // Save/upsert answers (only for valid questions belonging to this test)
+    const upsertRows = normalizedAnswers
+      .map(a => ({
+        attempt_id: attemptId,
+        question_id: a.questionId || a.question_id,
+        answer: typeof a.answer === 'object' ? JSON.stringify(a.answer) : String(a.answer || ''),
+        answered_at: new Date().toISOString()
+      }))
+      .filter(row => validQIds.size === 0 || validQIds.has(row.question_id));
 
     if (upsertRows.length > 0) {
       await supabase.from('attempt_answers').upsert(upsertRows, { onConflict: 'attempt_id,question_id' });
@@ -268,15 +298,26 @@ export const submitAttempt = async (req, res) => {
     }
 
     if (normalizedAnswers.length > 0) {
-      const upsertRows = normalizedAnswers.map(a => ({
-        attempt_id: attemptId,
-        question_id: a.questionId || a.question_id,
-        answer: typeof a.answer === 'object' ? JSON.stringify(a.answer) : String(a.answer || ''),
-        answered_at: new Date().toISOString()
-      }));
-      await supabase.from('attempt_answers').upsert(upsertRows, { onConflict: 'attempt_id,question_id' }).catch(err => {
-        console.warn('Upsert on submit notice:', err.message);
-      });
+      const { data: testQuestions } = await supabase
+        .from('questions')
+        .select('id')
+        .eq('test_id', attempt.test_id);
+      const validQIds = new Set((testQuestions || []).map(q => q.id));
+
+      const upsertRows = normalizedAnswers
+        .map(a => ({
+          attempt_id: attemptId,
+          question_id: a.questionId || a.question_id,
+          answer: typeof a.answer === 'object' ? JSON.stringify(a.answer) : String(a.answer || ''),
+          answered_at: new Date().toISOString()
+        }))
+        .filter(row => validQIds.size === 0 || validQIds.has(row.question_id));
+
+      if (upsertRows.length > 0) {
+        await supabase.from('attempt_answers').upsert(upsertRows, { onConflict: 'attempt_id,question_id' }).catch(err => {
+          console.warn('Upsert on submit notice:', err.message);
+        });
+      }
     }
 
     const submittedAt = new Date().toISOString();

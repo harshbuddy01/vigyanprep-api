@@ -20,7 +20,7 @@ router.post('/', async (req, res) => {
         // VP-V002 FIX: Use 'attempts' table (where lifecycle creates attempts)
         const { data: attempt, error: ownerErr } = await supabase
             .from('attempts')
-            .select('id, server_deadline, status')
+            .select('id, server_deadline, status, test_id')
             .eq('id', attempt_id)
             .eq('student_id', studentId)
             .single();
@@ -36,6 +36,13 @@ router.post('/', async (req, res) => {
         const now = new Date();
         const deadline = new Date(attempt.server_deadline);
         if (attempt.status === 'submitted' || now > deadline) {
+            if (attempt.status !== 'submitted') {
+                await supabase.from('attempts').update({
+                    status: 'submitted',
+                    submitted_at: attempt.server_deadline || now.toISOString(),
+                    submit_reason: 'auto_time'
+                }).eq('id', attempt_id);
+            }
             return res.status(200).json({
                 success: true,
                 expired: true,
@@ -53,12 +60,21 @@ router.post('/', async (req, res) => {
                     answer: ans
                   }));
 
-            const upsertRows = normalizedAnswers.map(a => ({
-                attempt_id: attempt_id,
-                question_id: a.questionId || a.question_id,
-                answer: typeof a.answer === 'object' ? JSON.stringify(a.answer) : String(a.answer || ''),
-                answered_at: new Date().toISOString()
-            }));
+            // Filter answers to only save questions belonging to this test
+            const { data: testQuestions } = await supabase
+                .from('questions')
+                .select('id')
+                .eq('test_id', attempt.test_id);
+            const validQIds = new Set((testQuestions || []).map(q => q.id));
+
+            const upsertRows = normalizedAnswers
+                .map(a => ({
+                    attempt_id: attempt_id,
+                    question_id: a.questionId || a.question_id,
+                    answer: typeof a.answer === 'object' ? JSON.stringify(a.answer) : String(a.answer || ''),
+                    answered_at: new Date().toISOString()
+                }))
+                .filter(row => validQIds.size === 0 || validQIds.has(row.question_id));
 
             if (upsertRows.length > 0) {
                 await supabase

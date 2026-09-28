@@ -477,7 +477,33 @@ export const getTestAttemptsForAdmin = async (req, res) => {
 
     if (attErr) throw attErr;
 
-    // Fetch answers count per attempt
+    // Auto-finalize any attempts whose deadline has passed
+    const now = new Date();
+    for (const a of (attempts || [])) {
+      if (a.status === 'in_progress' && a.server_deadline && new Date(a.server_deadline) < now) {
+        await supabase
+          .from('attempts')
+          .update({
+            status: 'submitted',
+            submitted_at: a.server_deadline || now.toISOString(),
+            submit_reason: 'auto_time'
+          })
+          .eq('id', a.id);
+        a.status = 'submitted';
+        a.submitted_at = a.server_deadline || now.toISOString();
+        a.submit_reason = 'auto_time';
+      }
+    }
+
+    // Fetch valid question IDs for this test to avoid counting dirty/cross-test answers
+    const { data: testQuestions } = await supabase
+      .from('questions')
+      .select('id')
+      .eq('test_id', testId);
+    const testQSet = new Set((testQuestions || []).map(q => q.id));
+    const totalTestQuestions = testQuestions?.length || 0;
+
+    // Fetch answers count per attempt (only valid answers belonging to this test)
     const attemptIds = (attempts || []).map(a => a.id);
     let answerCounts = {};
     if (attemptIds.length > 0) {
@@ -487,21 +513,23 @@ export const getTestAttemptsForAdmin = async (req, res) => {
         .in('attempt_id', attemptIds);
 
       (answers || []).forEach(ans => {
-        answerCounts[ans.attempt_id] = (answerCounts[ans.attempt_id] || 0) + 1;
+        if (testQSet.size === 0 || testQSet.has(ans.question_id)) {
+          answerCounts[ans.attempt_id] = (answerCounts[ans.attempt_id] || 0) + 1;
+        }
       });
     }
 
-    // Fetch student details from users / subscriptions / auth
+    // Fetch student details from students / subscriptions
     const studentIds = (attempts || []).map(a => a.student_id).filter(Boolean);
     let studentsMap = {};
     if (studentIds.length > 0) {
-      const { data: users } = await supabase
-        .from('users')
-        .select('id, email, full_name, name')
+      const { data: studentList } = await supabase
+        .from('students')
+        .select('id, email, full_name, roll_number')
         .in('id', studentIds);
 
-      (users || []).forEach(u => {
-        studentsMap[u.id] = { name: u.full_name || u.name || 'Student', email: u.email };
+      (studentList || []).forEach(s => {
+        studentsMap[s.id] = { name: s.full_name || 'Student', email: s.email };
       });
 
       const { data: subs } = await supabase
@@ -545,7 +573,8 @@ export const getTestAttemptsForAdmin = async (req, res) => {
     return res.status(200).json({
       success: true,
       attempts: enriched,
-      count: enriched.length
+      count: enriched.length,
+      total_questions: totalTestQuestions
     });
   } catch (err) {
     console.error('getTestAttemptsForAdmin error:', err);
@@ -663,17 +692,28 @@ export const getMeritListForAdmin = async (req, res) => {
     const studentIds = (results || []).map(r => r.student_id).filter(Boolean);
     let studentsMap = {};
     if (studentIds.length > 0) {
-      const { data: users } = await supabase
-        .from('users')
-        .select('id, email, full_name, name')
+      const { data: studentList } = await supabase
+        .from('students')
+        .select('id, email, full_name, roll_number')
         .in('id', studentIds);
 
-      (users || []).forEach(u => {
-        studentsMap[u.id] = { name: u.full_name || u.name || 'Candidate', email: u.email };
+      (studentList || []).forEach(s => {
+        studentsMap[s.id] = { name: s.full_name || 'Candidate', email: s.email };
+      });
+
+      const { data: subs } = await supabase
+        .from('subscriptions')
+        .select('student_id, student_email, student_name')
+        .in('student_id', studentIds);
+
+      (subs || []).forEach(s => {
+        if (!studentsMap[s.student_id] || !studentsMap[s.student_id].email) {
+          studentsMap[s.student_id] = { name: s.student_name || 'Candidate', email: s.student_email };
+        }
       });
 
       for (const sId of studentIds) {
-        if (!studentsMap[sId] || !studentsMap[sId].email) {
+        if (!studentsMap[sId] || !studentsMap[sId].email || studentsMap[sId].email === '—') {
           try {
             const { data: authUser } = await supabase.auth.admin.getUserById(sId);
             if (authUser?.user) {
