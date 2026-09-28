@@ -611,7 +611,7 @@ export const approveAndPublishPyq = async (req, res) => {
           correct_numeric_answer: parsedNum,
           image_url: q.image_url || q.imageUrl || null,
           marks_positive: q.marks_positive || 4,
-          marks_negative: 0, // No negative marks for numerical in JEE Main Section B
+          marks_negative: q.marks_negative !== undefined ? q.marks_negative : 1, // Standard NTA marking: -1 for wrong answers in Section B
           status: 'approved'
         });
       });

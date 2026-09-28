@@ -119,7 +119,7 @@ export async function recalculateTestScoresAndRanks(testId) {
 
   const { data: questions, error: qErr } = await supabase
     .from('questions')
-    .select('id, section, correct_answer, marks_positive, marks_negative')
+    .select('id, section, type, question_type, correct_answer, marks_positive, marks_negative')
     .eq('test_id', testId);
 
   if (qErr) throw qErr;
@@ -175,7 +175,7 @@ export async function recalculateTestScoresAndRanks(testId) {
       if (!sectionScores[sec]) sectionScores[sec] = 0;
 
       const pos = Number(q.marks_positive) || 4;
-      const neg = Math.abs(Number(q.marks_negative) || 1);
+      const neg = q.marks_negative !== undefined && q.marks_negative !== null ? Math.abs(Number(q.marks_negative)) : 1;
       const correctRaw = String(q.correct_answer || '').trim().toUpperCase();
 
       // Check if question is officially designated BONUS or DROPPED
@@ -191,16 +191,30 @@ export async function recalculateTestScoresAndRanks(testId) {
       const userAns = answersMap[qId];
       if (userAns !== undefined && userAns !== null && String(userAns).trim() !== '') {
         const userStr = String(userAns).trim().toUpperCase();
-        // Support multi-option keys (e.g. "A,B" or "A/B" or "A or B" or "A|B")
-        const allowedOptions = correctRaw
-          .replace(/\bOR\b/gi, ',')
-          .split(/[,/|]+/)
-          .map(s => s.trim())
-          .filter(Boolean);
+        const isNumerical = q.type === 'Numerical' || q.question_type === 'Numerical';
+        let isCorrect = false;
 
-        const isCorrect = allowedOptions.length > 1
-          ? allowedOptions.includes(userStr)
-          : userStr === correctRaw;
+        if (isNumerical) {
+          const sNum = parseFloat(userStr);
+          const cNum = parseFloat(correctRaw);
+          if (!isNaN(sNum) && !isNaN(cNum)) {
+            // Evaluated with numerical equality or 0.01 floating point tolerance
+            isCorrect = Math.abs(sNum - cNum) <= 0.01 || userStr === correctRaw;
+          } else {
+            isCorrect = userStr.toLowerCase() === correctRaw.toLowerCase();
+          }
+        } else {
+          // Support multi-option keys (e.g. "A,B" or "A/B" or "A or B" or "A|B")
+          const allowedOptions = correctRaw
+            .replace(/\bOR\b/gi, ',')
+            .split(/[,/|]+/)
+            .map(s => s.trim())
+            .filter(Boolean);
+
+          isCorrect = allowedOptions.length > 1
+            ? allowedOptions.includes(userStr)
+            : userStr === correctRaw;
+        }
 
         if (isCorrect) {
           totalRawScore += pos;

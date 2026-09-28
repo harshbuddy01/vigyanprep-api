@@ -146,7 +146,7 @@ export function evaluateCMI(answers, questions, partACutoff = 24) {
  * JEE Main evaluator
  * 3 sections: Physics, Chemistry, Mathematics (no Biology)
  * 25 questions per section = 75 total
- * MCQ: +4/-1, Numerical: +4/0 (no negative for numerical)
+ * MCQ: +4/-1, Numerical: +4/-1 (Standard NTA negative marking applies to both sections)
  * Total: 300 marks
  */
 export function evaluateJEE(answers, questions) {
@@ -156,11 +156,10 @@ export function evaluateJEE(answers, questions) {
     for (const q of questions) {
         const subj = (q.subject || q.section || 'unknown').toLowerCase();
         const studentAns = answers[q.id];
-        const isNumerical = q.type === 'Numerical' || q.question_type === 'Numerical';
         
-        // JEE Main: MCQ = +4/-1, Numerical = +4/0
+        // JEE Main (NTA Pattern): MCQ = +4/-1, Numerical = +4/-1
         const marksPos = q.marks_positive ?? 4;
-        const marksNeg = isNumerical ? 0 : (q.marks_negative ?? 1);
+        const marksNeg = q.marks_negative ?? 1;
         
         const score = evaluateOneQuestion(q, studentAns, marksPos, marksNeg);
         

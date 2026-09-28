@@ -172,7 +172,7 @@ export const createQuestionInBank = async (req, res) => {
         correct_numeric_answer: type === 'Numerical' && !isNaN(parseFloat(correct_answer)) ? parseFloat(correct_answer) : null,
         image_url: image_url || null,
         marks_positive: Number(marks_positive) || 4,
-        marks_negative: Number(marks_negative) !== undefined ? Number(marks_negative) : (type === 'Numerical' ? 0 : 1),
+        marks_negative: Number(marks_negative) !== undefined ? Number(marks_negative) : 1,
         model_answer: solution_explanation || '',
         status: 'approved'
       })
@@ -340,7 +340,7 @@ export const importQuestionsToTest = async (req, res) => {
           : null,
         image_url: src.image_url,
         marks_positive: src.marks_positive || 4,
-        marks_negative: isNumerical ? 0 : (src.marks_negative !== undefined ? src.marks_negative : 1),
+        marks_negative: src.marks_negative !== undefined ? src.marks_negative : 1,
         model_answer: src.model_answer || src.solution_explanation || '',
         status: 'approved'
       };
