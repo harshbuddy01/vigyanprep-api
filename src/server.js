@@ -138,6 +138,12 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads'), {
   immutable: true
 }));
 
+// Fallback redirect for diagrams: if not found on local ephemeral disk, redirect to GCS bucket
+app.get('/uploads/diagrams/:filename', (req, res) => {
+  const { filename } = req.params;
+  return res.redirect(302, `https://storage.googleapis.com/vigyanprep-diagrams/${filename}`);
+});
+
 // Public Endpoints
 app.use('/api/public', publicLimiter, publicRoutes);
 app.use('/api/admin/auth', loginLimiter, adminAuthRoutes);
